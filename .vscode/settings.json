@@ -1,0 +1,15 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+
+  // experiment/mechanism and experiment/evaluation are flat directories, not
+  // packages -- modules import each other by bare name (`import aim`).  That
+  // works at runtime via PYTHONPATH; these two settings tell the language
+  // server and the integrated terminal the same thing.
+  "python.analysis.extraPaths": [
+    "experiment/mechanism",
+    "experiment/evaluation"
+  ],
+  "terminal.integrated.env.linux": {
+    "PYTHONPATH": "${workspaceFolder}/experiment/mechanism:${workspaceFolder}/experiment/evaluation"
+  }
+}
