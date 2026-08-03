@@ -19,10 +19,9 @@ docs/
   papers/                  the source papers
 experiment/
   mechanism/               the DP algorithm -- data.py, policy.py, mle.py, aim.py
-  evaluation/              scoring -- metrics.py, analyze.py
+  evaluation/              scoring -- metrics.py, analyze.py, figures.py
   run.py                   the harness, the only thing importing both
   results/                 sweep.json, written by run.py
-archive/                   superseded results and documents, read by nothing
 ```
 
 The split is the **privacy boundary**, not just tidiness. `mechanism/` is what
@@ -68,8 +67,9 @@ graph TD
     end
 
     subgraph evaluation["evaluation/ -- post-processing, sees ground truth"]
-        metrics["metrics.py<br/>distributional distance"]
+        metrics["metrics.py<br/>workload error, range error"]
         analyze["analyze.py<br/>reads JSON only"]
+        figures["figures.py<br/>reads JSON only"]
     end
 
     run --> aim
@@ -96,9 +96,10 @@ mechanism produced.
 | mechanism | `policy.py` | 221 | Blowfish policy graphs: build, transform, sensitivity |
 | mechanism | `mle.py` | 49 | Fit a joint to a set of noisy measurements by weighted least squares |
 | mechanism | `aim.py` | 170 | The AIM loop: warm start, then SELECT / MEASURE / refit |
-| evaluation | `metrics.py` | 88 | How far the fitted joint is from the true one |
-| evaluation | `analyze.py` | 98 | Turn `sweep.json` into tables, stock vs policy |
-| harness | `run.py` | 69 | Sweep over budgets, arms and seeds; writes `sweep.json` |
+| evaluation | `metrics.py` | 69 | Two metrics: 3-way workload error, and range error by interval width |
+| evaluation | `analyze.py` | 103 | Turn `sweep.json` into tables, stock vs policy |
+| evaluation | `figures.py` | 177 | Turn `sweep.json` into the report's SVGs |
+| harness | `run.py` | 65 | Sweep over budgets, arms and seeds; writes `sweep.json` |
 
 ---
 
@@ -239,9 +240,9 @@ Two consequences of the **multiplicative** update:
   class, reached without building a junction tree.
 
 Anything not pinned down by a measured marginal comes out at its
-**maximum-entropy** value. Measure `age x sex` and `sex x income` and the fit
-returns age and income conditionally independent given sex. That is the model
-class, not a bug — and it is why SELECT matters.
+**maximum-entropy** value. Measure `age x workclass` and `workclass x income`
+and the fit returns age and income conditionally independent given workclass.
+That is the model class, not a bug — and it is why SELECT matters.
 
 The fit does not converge tightly, and does not need to: at `rho=0.04` the
 measurement itself sits about 2,060 in L1 away from the truth, so driving the
@@ -438,11 +439,15 @@ nohup .venv/bin/python experiment/run.py \
   > experiment/results/sweep.log 2>&1 &
 ```
 
-### 6. The tables
+### 6. The tables and figures
 
 ```bash
 .venv/bin/python experiment/evaluation/analyze.py
+.venv/bin/python experiment/evaluation/figures.py     # -> docs/figures/*.svg
 ```
+
+Both read `sweep.json` only, so either can be rerun without the mechanism on
+the path.
 
 ### Changing the experiment
 

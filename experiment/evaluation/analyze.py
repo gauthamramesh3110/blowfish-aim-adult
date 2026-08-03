@@ -1,17 +1,18 @@
 """Aggregate the sweep into tables.
 
-Every number is an error, so lower is better and every column should fall as
-rho rises.  Two arms are reported side by side -- stock standard DP and the
-Blowfish policy -- with the ratio policy/stock, so above 1.00 means the policy
-arm is worse on that metric.
+Two metrics, matching docs/experiment-results.md: AIM's 3-way workload error,
+and range-query error stratified by interval width.  Every number is an error,
+so lower is better and every column should fall as rho rises.  Two arms are
+reported side by side -- stock standard DP and the Blowfish policy -- with the
+ratio policy/stock, so above 1.00 means the policy arm is worse.
 
-The policy is expected to lose slightly on cell-level metrics and win on range
-queries: it releases more numbers, each carrying less noise.  Read the ratio
-per metric; there is no single overall verdict.
+The policy is expected to lose on workload error and to win on range queries,
+but only above a width threshold.  Read the range table across a row: the
+ratio starts above 1.00 at narrow widths and drops below it at wide ones.  That
+sign flip is the finding, so the range strata are never pooled.
 
-The sampling floor at the bottom is what you would get by drawing 32,561
-records from the true joint -- a reminder that these errors are measured on the
-fitted joint, not on sampled records.
+Reads sweep.json and nothing else -- no import from mechanism/, so the tables
+can be regenerated without the domain or the policy on the path.
 
     python experiment/evaluation/analyze.py     # from the project root
 """
@@ -22,8 +23,11 @@ import numpy as np
 RES = json.load(open("experiment/results/sweep.json"))
 RHOS = sorted({r["rho"] for r in RES})
 ARMS = [(False, "stock"), (True, "policy")]
-ORD = {"0": "age", "1": "hours", "2": "education.num"}
 BANDS = ["1-2", "3-5", "6-10", "11-20", ">20"]
+
+# theta per ordinal attribute, mirroring policy.POLICY -- kept as a literal so
+# this module stays JSON-only and never imports from mechanism/.
+ORD = {"0": ("age", 7), "1": ("hours", 8), "2": ("education.num", 2)}
 
 
 def stat(rho, pol, path):
@@ -59,40 +63,41 @@ def table(title, path, fmt="{:.4f}"):
 
 
 print("=" * 68)
-print("MARGINAL ACCURACY         ratio = policy / stock, >1 means policy worse")
+print("CELL-LEVEL ACCURACY       ratio = policy / stock, >1 means policy worse")
 print("=" * 68)
-table("3-way workload error (AIM's own target)", ["wl_mean"])
-table("max 3-way workload error", ["wl_max"])
-table("TV distance, 1-way", ["tv1"])
-table("TV distance, 2-way", ["tv2"])
+table("3-way workload error (AIM's own metric)", ["wl_mean"])
 
 print("\n" + "=" * 68)
-print("ORDINAL STRUCTURE         where the threshold policy should pay off")
+print("RANGE QUERIES             where the threshold policy should pay off")
 print("=" * 68)
-for ax, name in ORD.items():
-    print(f"\nRange query error on {name}, by interval width")
+for ax, (name, theta) in ORD.items():
+    print(f"\nRange query error on {name} (theta = {theta}), by interval width")
     print(f"  {'rho':>9}  {'arm':<8}" + "".join(f"{b:>11}" for b in BANDS))
     for rho in RHOS:
+        means = {}
         for pol, label in ARMS:
             row = f"  {rho:>9}  {label:<8}"
+            means[pol] = []
             for b in BANDS:
                 m, _ = stat(rho, pol, ["range", ax, b])
+                means[pol].append(m)
                 row += f"{m:>11.1f}" if m == m else f"{'--':>11}"
             print(row)
-
-for ax, name in ORD.items():
-    table(f"Wasserstein-1, {name}", ["w1", ax])
-for ax, name in [("0", "age"), ("1", "hours")]:
-    table(f"Small-count cell error, {name}", ["small", ax], "{:.2f}")
+        row = f"  {'':>9}  {'ratio':<8}"
+        for s, p in zip(means[False], means[True]):
+            row += f"{p / s:>11.2f}" if s == s and p == p and s else f"{'--':>11}"
+        print(row)
 
 print("\n" + "=" * 68)
 print("SELECT diversity (distinct marginals chosen, of 10)")
 print("=" * 68)
-print(f"  {'rho':>9}{'stock':>11}{'policy':>11}")
+print("a diagnostic, not a metric: the arms may not be picking the same")
+print("marginals, which would confound the workload-error gap above.")
+print(f"\n  {'rho':>9}{'stock':>11}{'policy':>11}")
 for rho in RHOS:
     s, _ = stat(rho, False, ["distinct"])
     p, _ = stat(rho, True, ["distinct"])
     print(f"  {rho:>9}{s:>11.1f}{p:>11.1f}")
 
 print("\nfor scale -- resampling 32,561 records from the TRUE joint, no DP:")
-print("  3-way workload 0.1420   TV2 0.0286   W1 age 0.0648")
+print("  3-way workload error 0.1420")

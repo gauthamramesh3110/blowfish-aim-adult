@@ -31,15 +31,11 @@ OUT = "experiment/results/sweep.json"
 
 
 def evaluate(true, est):
-    """Every metric for one fitted joint, against the true joint."""
-    mean3, max3 = metrics.workload_error(true, est)
+    """Both metrics for one fitted joint, against the true joint."""
     return {
-        "wl_mean": mean3, "wl_max": max3,
-        "tv1": metrics.tv_distance(true, est, 1),
-        "tv2": metrics.tv_distance(true, est, 2),
-        "range": {str(a): metrics.range_by_stratum(true, est, a) for a in metrics.ORDINAL},
-        "w1": {str(a): metrics.wasserstein1(true, est, a) for a in metrics.ORDINAL},
-        "small": {str(a): metrics.small_cell_error(true, est, a) for a in (0, 1)},
+        "wl_mean": metrics.workload_error(true, est),
+        "range": {str(a): metrics.range_by_stratum(true, est, a)
+                  for a in metrics.ORDINAL},
     }
 
 

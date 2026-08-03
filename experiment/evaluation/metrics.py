@@ -1,9 +1,23 @@
-"""How close is the synthetic distribution to the real one?
+"""How close is the fitted joint to the real one?
 
-Everything here compares the fitted joint against the true joint directly.
+Two metrics, and deliberately only two.
 
-  marginals   L1 error on the 3-way workload, total variation at degree 1 and 2
-  ordinal     range queries, Wasserstein-1, small-count cells
+  workload error   mean L1 over the 3-way workload, normalised by n.  AIM's
+                   own metric (McKenna et al., VLDB 2022), same 3-way workload.
+  range error      L1 error of every interval on an ordinal attribute,
+                   bucketed by interval width.  Range queries under threshold
+                   policies are the motivating workload of the Blowfish Design
+                   paper (Haney, Machanavajjhala, Ding, 2015).
+
+The first is what the policy is expected to cost, the second what it buys.
+Neither is invented here: AIM supplies the cell-level metric and has none that
+can express what a threshold policy changes, so the range benchmark comes from
+the Blowfish line the transform itself is taken from.
+
+The range metric is stratified by width and never pooled.  The policy is worse
+on narrow intervals and better on wide ones, so a single pooled average lets
+the two cancel and reports nothing.  That sign flip, within one metric, is the
+whole finding -- which is why no third metric is needed to establish it.
 
 Nothing samples records.  Drawing 32,561 records from the *true* joint already
 costs 3-way L1 0.142, roughly half what the DP mechanism loses at the top of
@@ -25,23 +39,13 @@ BANDS = [("1-2", 1, 2), ("3-5", 3, 5), ("6-10", 6, 10),
          ("11-20", 11, 20), (">20", 21, 10 ** 9)]
 
 
-# ------------------------------------------------------------- marginals
 def workload_error(true, est):
-    """Mean and max L1 error over all 3-way marginals, normalised by n."""
+    """Mean L1 error over all 3-way marginals, normalised by n."""
     e = [np.abs(marginal(true, S) - marginal(est, S)).sum() / true.sum()
          for S in THREE_WAY]
-    return float(np.mean(e)), float(np.max(e))
+    return float(np.mean(e))
 
 
-def tv_distance(true, est, degree):
-    """Mean total variation distance over all marginals of the given degree."""
-    n = true.sum()
-    d = [0.5 * np.abs(marginal(true, S) / n - marginal(est, S) / n).sum()
-         for S in itertools.combinations(range(len(SIZES)), degree)]
-    return float(np.mean(d))
-
-
-# --------------------------------------------------------------- ordinal
 def range_errors(true, est, axis):
     """L1 error of every interval on `axis`, with each interval's width.
 
@@ -63,26 +67,3 @@ def range_by_stratum(true, est, axis):
         if m.any():
             out[name] = float(err[m].mean())
     return out
-
-
-def wasserstein1(true, est, axis):
-    """Earth-mover distance between the two 1-way distributions, in cells.
-
-    Unlike TV distance this respects ordinal distance: moving mass from age 20
-    to age 21 costs far less than moving it to age 60.
-    """
-    t = marginal(true, (axis,)); e = marginal(est, (axis,))
-    return float(np.abs(np.cumsum(e / e.sum() - t / t.sum())).sum())
-
-
-def small_cell_error(true, est, axis):
-    """Mean relative error on cells holding under 0.1% of mass.
-
-    Rare values are where DP noise does the most damage in relative terms, and
-    where a mechanism is most likely to invent mass that was never there.
-    """
-    t = marginal(true, (axis,)); e = marginal(est, (axis,))
-    m = t < 0.001 * true.sum()
-    if not m.any():
-        return float("nan")
-    return float(np.mean(np.abs(e[m] - t[m]) / np.maximum(t[m], 1.0)))
