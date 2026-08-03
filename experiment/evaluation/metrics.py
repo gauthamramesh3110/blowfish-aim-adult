@@ -2,13 +2,13 @@
 
 Everything here compares the fitted joint against the true joint directly.
 
-  marginals   L1 error on the 3-way workload, total variation at each degree
+  marginals   L1 error on the 3-way workload, total variation at degree 1 and 2
   ordinal     range queries, Wasserstein-1, small-count cells
 
 Nothing samples records.  Drawing 32,561 records from the *true* joint already
-costs TV-3way 0.071 and 3-way L1 0.142, which is more than the DP mechanism
-loses at the top of the budget range -- so metrics computed on sampled records
-would mostly measure the sampler.  data.sample stays available for producing
+costs 3-way L1 0.142, roughly half what the DP mechanism loses at the top of
+the budget range -- so metrics computed on sampled records would spend much of
+their range measuring the sampler.  data.sample stays available for producing
 synthetic records, it just is not what we score.
 """
 import itertools

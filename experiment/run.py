@@ -37,7 +37,6 @@ def evaluate(true, est):
         "wl_mean": mean3, "wl_max": max3,
         "tv1": metrics.tv_distance(true, est, 1),
         "tv2": metrics.tv_distance(true, est, 2),
-        "tv3": metrics.tv_distance(true, est, 3),
         "range": {str(a): metrics.range_by_stratum(true, est, a) for a in metrics.ORDINAL},
         "w1": {str(a): metrics.wasserstein1(true, est, a) for a in metrics.ORDINAL},
         "small": {str(a): metrics.small_cell_error(true, est, a) for a in (0, 1)},

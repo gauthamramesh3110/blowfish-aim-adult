@@ -65,7 +65,6 @@ table("3-way workload error (AIM's own target)", ["wl_mean"])
 table("max 3-way workload error", ["wl_max"])
 table("TV distance, 1-way", ["tv1"])
 table("TV distance, 2-way", ["tv2"])
-table("TV distance, 3-way", ["tv3"])
 
 print("\n" + "=" * 68)
 print("ORDINAL STRUCTURE         where the threshold policy should pay off")
@@ -96,4 +95,4 @@ for rho in RHOS:
     print(f"  {rho:>9}{s:>11.1f}{p:>11.1f}")
 
 print("\nfor scale -- resampling 32,561 records from the TRUE joint, no DP:")
-print("  3-way workload 0.1420   TV2 0.0286   TV3 0.0710   W1 age 0.0648")
+print("  3-way workload 0.1420   TV2 0.0286   W1 age 0.0648")

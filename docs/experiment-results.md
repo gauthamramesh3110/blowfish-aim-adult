@@ -132,8 +132,9 @@ with SELECT frozen to a fixed schedule, which has not been done.
 | 0.16 | 6.2 | 5.0 |
 
 **Errors stay above the sampling floor.** Drawing 32,561 records from the true
-joint, no privacy at all, already costs TV-3way 0.071. Nothing here is
-floor-limited — the mechanism is the binding constraint throughout.
+joint, no privacy at all, already costs 3-way L1 0.142. The best result here is
+0.299 — still twice the floor, so nothing is floor-limited and the mechanism is
+the binding constraint throughout.
 
 **Not measured.** The spec's Tier C (downstream utility) and Tier D (attack /
 inference gap) were not run.

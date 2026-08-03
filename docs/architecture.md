@@ -1,7 +1,7 @@
 # Code architecture
 
 A minimal AIM on the Adult census data, in two arms: standard differential
-privacy, and a Blowfish policy. Seven modules, 763 lines, `numpy` and nothing
+privacy, and a Blowfish policy. Seven modules, 776 lines, `numpy` and nothing
 else.
 
 **Unbounded DP throughout**, matching AIM's own definition — neighbours differ
@@ -93,12 +93,12 @@ mechanism produced.
 | side | module | lines | responsibility |
 |---|---|---|---|
 | mechanism | `data.py` | 81 | Load Adult into a dense joint histogram; marginalise, expand, sample |
-| mechanism | `policy.py` | 209 | Blowfish policy graphs: build, transform, sensitivity |
+| mechanism | `policy.py` | 221 | Blowfish policy graphs: build, transform, sensitivity |
 | mechanism | `mle.py` | 49 | Fit a joint to a set of noisy measurements by weighted least squares |
-| mechanism | `aim.py` | 167 | The AIM loop: warm start, then SELECT / MEASURE / refit |
+| mechanism | `aim.py` | 170 | The AIM loop: warm start, then SELECT / MEASURE / refit |
 | evaluation | `metrics.py` | 88 | How far the fitted joint is from the true one |
-| evaluation | `analyze.py` | 99 | Turn `sweep.json` into tables, stock vs policy |
-| harness | `run.py` | 70 | Sweep over budgets, arms and seeds; writes `sweep.json` |
+| evaluation | `analyze.py` | 98 | Turn `sweep.json` into tables, stock vs policy |
+| harness | `run.py` | 69 | Sweep over budgets, arms and seeds; writes `sweep.json` |
 
 ---
 

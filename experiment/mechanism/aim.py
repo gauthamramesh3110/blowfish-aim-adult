@@ -19,11 +19,15 @@ exact inference, so no graphical model is built; the round count is fixed with
 no budget annealing; candidates are all 2-way marginals and the workload is all
 3-way marginals.
 """
+import collections
+
 import numpy as np
 
 import mle
 import policy
 from data import SIZES, marginal
+
+Cost = collections.namedtuple("Cost", "delta penalty")
 
 NDIM = len(SIZES)
 CANDIDATES = [(i, j) for i in range(NDIM) for j in range(i + 1, NDIM)]
@@ -47,14 +51,14 @@ def score_sensitivity(graphs):
 
 
 def cost(S, G):
-    """(noise multiplier, expected L1 reconstruction error at unit sigma).
+    """Noise multiplier, and expected L1 reconstruction error at unit sigma.
 
     Stock AIM releases the marginal itself: sensitivity 1, and one noisy cell
     per cell.  Under a policy it releases x_G instead, so the multiplier is the
     policy sensitivity and the error term is spec 6.2's generalised penalty.
     Stock is the special case where the only edges are the bottom ones.
     """
-    return (SENSITIVITY, cells(S)) if G is None else (G.delta, G.penalty)
+    return Cost(SENSITIVITY, cells(S)) if G is None else Cost(G.delta, G.penalty)
 
 
 def measure(x, sigma, rng, G=None):
@@ -89,9 +93,9 @@ def select(true, model, sigma, eps, rng, graphs=None):
     """
     q = []
     for S in CANDIDATES:
-        delta, pen = cost(S, graphs.get(S) if graphs else None)
+        c = cost(S, graphs.get(S) if graphs else None)
         q.append(np.abs(marginal(true, S) - marginal(model, S)).sum()
-                 - np.sqrt(2.0 / np.pi) * sigma * delta * pen)
+                 - np.sqrt(2.0 / np.pi) * sigma * c.delta * c.penalty)
     q = np.array(q)
     p = np.exp(eps * (q - q.max()) / (2 * score_sensitivity(graphs)))
     return CANDIDATES[rng.choice(len(CANDIDATES), p=p / p.sum())]
@@ -124,7 +128,7 @@ def run(true, rho, seed, rounds=10, iters=30, use_policy=False):
     for S in ONE_WAY:
         G = graphs.get(S) if graphs else None
         meas[S] = measure(marginal(true, S), sigma_warm, rng, G)
-        scales[S] = sigma_warm * cost(S, G)[0]
+        scales[S] = sigma_warm * cost(S, G).delta
         repeats[S] = 1
 
     model = np.full(SIZES, n_hat / np.prod(SIZES))
@@ -142,7 +146,7 @@ def run(true, rho, seed, rounds=10, iters=30, use_policy=False):
             repeats[S] += 1
         else:
             meas[S], repeats[S] = y, 1
-        scales[S] = sigma_meas * cost(S, G)[0] / np.sqrt(repeats[S])
+        scales[S] = sigma_meas * cost(S, G).delta / np.sqrt(repeats[S])
         model = mle.fit(model, meas, scales, n_hat, iters, t0=(t + 1) * iters,
                         graphs=graphs)
 

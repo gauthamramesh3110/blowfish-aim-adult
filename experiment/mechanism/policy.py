@@ -82,6 +82,26 @@ def axis_edges(a):
 
 # ---- the policy graph of one marginal --------------------------------------
 
+def product_edges(S):
+    """Edges of the Cartesian product graph, as two arrays of cell indices.
+
+    Two cells are joined iff they differ on exactly one axis, and that axis's
+    two values are joined in its own graph.  `np.take(idx, u, axis=ax)` is the
+    slice of cells whose axis-`ax` value is `u`, so one per-axis edge becomes a
+    whole column of cell edges at once.
+
+    This is the "no Kronecker" step: the product is enumerated directly.
+    """
+    shape = [SIZES[i] for i in S]
+    idx = np.arange(int(np.prod(shape))).reshape(shape)
+    U, V = [], []
+    for ax, a in enumerate(S):
+        for u, v in axis_edges(a):
+            U.append(np.take(idx, u, axis=ax).ravel())
+            V.append(np.take(idx, v, axis=ax).ravel())
+    return np.concatenate(U), np.concatenate(V)
+
+
 class Graph:
     """P_G for one marginal: edge list, inverse Laplacian, sensitivity.
 
@@ -94,39 +114,31 @@ class Graph:
         self.S = S
         self.shape = [SIZES[i] for i in S]
         self.k = k = int(np.prod(self.shape))
-        self.bottom = k
+        self.bottom = k                 # one extra vertex, pinned at level 0
 
-        # Cartesian product, built directly -- no Kronecker algebra.
-        idx = np.arange(k).reshape(self.shape)
-        U, V = [], []
-        for ax, a in enumerate(S):
-            for u, v in axis_edges(a):
-                U.append(np.take(idx, u, axis=ax).ravel())
-                V.append(np.take(idx, v, axis=ax).ravel())
-        # one bottom-edge per cell: the record may be present or absent
-        U.append(np.arange(k))
-        V.append(np.full(k, k))
-        self.U = np.concatenate(U)
-        self.V = np.concatenate(V)
+        # the policy edges, plus one bottom-edge per cell (the record may be
+        # present or absent).  `to_bottom` splits the two kinds thereafter.
+        gu, gv = product_edges(S)
+        self.U = np.concatenate([gu, np.arange(k)])
+        self.V = np.concatenate([gv, np.full(k, self.bottom)])
+        self.to_bottom = self.V == self.bottom
+        u, v = self.U[~self.to_bottom], self.V[~self.to_bottom]
 
-        # L = P_G P_G^T, formed from the edge list.  Bottom contributes to the
-        # diagonal only, which is what makes L = L_graph + I invertible.
-        real = self.V < k
+        # L = P_G P_G^T.  A bottom-edge column is a bare +1, so it lands on the
+        # diagonal only -- which is exactly why L = L_graph + I is invertible.
+        deg = np.bincount(self.U, minlength=k) + np.bincount(v, minlength=k)
         L = np.zeros((k, k))
-        deg = np.bincount(self.U, minlength=k)[:k] + np.bincount(
-            self.V[real], minlength=k)[:k]
         L[np.arange(k), np.arange(k)] = deg
-        np.add.at(L, (self.U[real], self.V[real]), -1.0)
-        np.add.at(L, (self.V[real], self.U[real]), -1.0)
+        np.add.at(L, (u, v), -1.0)
+        np.add.at(L, (v, u), -1.0)
         self.Z = np.linalg.inv(L)
 
-        # Delta_2 = max column L2 norm of P_G^-1 P_G.  Expanding that column,
-        # ||P_G^T Z c||^2 = c^T Z c, the effective resistance of the edge.
-        # Bottom reads as zero, so a bottom-edge gives simply Z[u,u].
-        Za = np.zeros((k + 1, k + 1))
-        Za[:k, :k] = self.Z
-        r = (Za[self.U, self.U] + Za[self.V, self.V]
-             - 2 * Za[self.U, self.V])
+        # Delta_2 = max column L2 norm of P_G^-1 P_G.  Expanding one column,
+        # ||P_G^T Z c||^2 = c^T Z c -- the edge's effective resistance.
+        r = np.empty(len(self.U))
+        r[~self.to_bottom] = self.Z[u, u] + self.Z[v, v] - 2 * self.Z[u, v]
+        b = self.U[self.to_bottom]      # bottom reads as zero, leaving Z[u,u]
+        r[self.to_bottom] = self.Z[b, b]
         self.delta = float(np.sqrt(r.max()))
 
         # SELECT penalty, spec 6.2: sum_i sqrt(inv(A^T A)[i,i]) with A = P_G^-1.
@@ -140,8 +152,8 @@ class Graph:
                 f"delta={self.delta:.4f}")
 
     def levels(self, x):
-        """Z @ x, padded with a zero for `bottom`."""
-        z = np.zeros(self.k + 1)
+        """Z @ x, with `bottom` appended at zero so z[U]-z[V] just works."""
+        z = np.zeros(self.bottom + 1)
         z[:self.k] = self.Z @ x.ravel()
         return z
 
@@ -152,8 +164,8 @@ class Graph:
 
     def back(self, r):
         """Edge-space residual -> cell-shaped gradient, i.e. (P_G^-1)^T r."""
-        w = (np.bincount(self.U, weights=r, minlength=self.k + 1)
-             - np.bincount(self.V, weights=r, minlength=self.k + 1))
+        w = (np.bincount(self.U, weights=r, minlength=self.bottom + 1)
+             - np.bincount(self.V, weights=r, minlength=self.bottom + 1))
         return (self.Z @ w[:self.k]).reshape(self.shape)
 
 
