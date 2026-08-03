@@ -6,6 +6,10 @@
                refit the model on everything measured so far
   finally      a longer fit, then sample synthetic records
 
+Unbounded DP throughout, matching AIM: neighbours differ by adding or removing
+one record.  So a marginal has L2 sensitivity 1, and the record count n is not
+public -- it is measured alongside the 1-way marginals.
+
 Budget is tracked in zCDP throughout: the Gaussian mechanism with noise scale
 sigma costs rho = 1/(2 sigma^2), and the exponential mechanism with parameter
 eps costs rho = eps^2/8.
@@ -25,20 +29,30 @@ NDIM = len(SIZES)
 CANDIDATES = [(i, j) for i in range(NDIM) for j in range(i + 1, NDIM)]
 ONE_WAY = [(i,) for i in range(NDIM)]
 
-SENSITIVITY = np.sqrt(2.0)      # bounded DP: one record moves, x changes by e_u - e_v
+SENSITIVITY = 1.0       # unbounded DP: one record added or removed, x moves by e_u
 
 
 def cells(S):
     return int(np.prod([SIZES[i] for i in S]))
 
 
+def score_sensitivity(graphs):
+    """L1 sensitivity of SELECT's quality score.
+
+    Adding or removing a record moves one cell by 1, so one L1 term moves by 1.
+    A policy also admits substitution along a graph edge, which moves two cells
+    by 1 each -- hence 2.
+    """
+    return 2.0 if graphs else 1.0
+
+
 def cost(S, G):
     """(noise multiplier, expected L1 reconstruction error at unit sigma).
 
-    Stock AIM releases the marginal itself: sensitivity sqrt(2), and one noisy
-    cell per cell.  Under a policy it releases x_G instead, so the multiplier
-    is the policy sensitivity and the error term is spec 6.2's generalised
-    penalty.  Stock is the special case P_G = I.
+    Stock AIM releases the marginal itself: sensitivity 1, and one noisy cell
+    per cell.  Under a policy it releases x_G instead, so the multiplier is the
+    policy sensitivity and the error term is spec 6.2's generalised penalty.
+    Stock is the special case where the only edges are the bottom ones.
     """
     return (SENSITIVITY, cells(S)) if G is None else (G.delta, G.penalty)
 
@@ -79,8 +93,7 @@ def select(true, model, sigma, eps, rng, graphs=None):
         q.append(np.abs(marginal(true, S) - marginal(model, S)).sum()
                  - np.sqrt(2.0 / np.pi) * sigma * delta * pen)
     q = np.array(q)
-    # q has sensitivity 2 (a record moving changes one L1 term by at most 2)
-    p = np.exp(eps * (q - q.max()) / (2 * 2.0))
+    p = np.exp(eps * (q - q.max()) / (2 * score_sensitivity(graphs)))
     return CANDIDATES[rng.choice(len(CANDIDATES), p=p / p.sum())]
 
 
@@ -89,20 +102,23 @@ def run(true, rho, seed, rounds=10, iters=30, use_policy=False):
     rng = np.random.default_rng(seed)
     n = true.sum()
 
-    # Neither of these costs budget: the graphs depend only on the policy, and
-    # the block totals are invariant under the neighbour relation.  Cached, so
-    # a sweep in one process pays the build cost once.
+    # The graphs cost no budget: they depend only on the policy, never the
+    # data.  Cached, so a sweep in one process pays the build cost once.
     graphs = ({S: policy.graph(S) for S in ONE_WAY + CANDIDATES}
               if use_policy else None)
-    totals = policy.free_totals(true) if use_policy else None
 
-    # budget: 10% warm start over the 1-way marginals, 90% split across rounds,
-    # each round half to SELECT and half to MEASURE.
-    rho_warm = 0.10 * rho / len(ONE_WAY)
+    # budget: 10% warm start over the 1-way marginals and the record count,
+    # 90% split across rounds, each round half to SELECT and half to MEASURE.
+    rho_warm = 0.10 * rho / (len(ONE_WAY) + 1)
     rho_round = 0.90 * rho / rounds
     sigma_warm = 1.0 / np.sqrt(2 * rho_warm)
     sigma_meas = 1.0 / np.sqrt(2 * (rho_round / 2))
     eps_select = np.sqrt(8 * (rho_round / 2))
+
+    # Under unbounded DP n is not public -- it is exactly what differs between
+    # neighbours -- so it is measured.  Sensitivity 1: a bottom edge adds or
+    # removes one record, and no other edge changes the total.
+    n_hat = n + rng.normal(0, sigma_warm * SENSITIVITY)
 
     meas, scales, repeats = {}, {}, {}
     for S in ONE_WAY:
@@ -111,8 +127,8 @@ def run(true, rho, seed, rounds=10, iters=30, use_policy=False):
         scales[S] = sigma_warm * cost(S, G)[0]
         repeats[S] = 1
 
-    model = np.full(SIZES, n / np.prod(SIZES))
-    model = mle.fit(model, meas, scales, n, iters, graphs=graphs, totals=totals)
+    model = np.full(SIZES, n_hat / np.prod(SIZES))
+    model = mle.fit(model, meas, scales, n_hat, iters, graphs=graphs)
 
     picked = []
     for t in range(rounds):
@@ -127,11 +143,11 @@ def run(true, rho, seed, rounds=10, iters=30, use_policy=False):
         else:
             meas[S], repeats[S] = y, 1
         scales[S] = sigma_meas * cost(S, G)[0] / np.sqrt(repeats[S])
-        model = mle.fit(model, meas, scales, n, iters, t0=(t + 1) * iters,
-                        graphs=graphs, totals=totals)
+        model = mle.fit(model, meas, scales, n_hat, iters, t0=(t + 1) * iters,
+                        graphs=graphs)
 
-    return mle.fit(model, meas, scales, n, iters * 5, t0=(rounds + 1) * iters,
-                   graphs=graphs, totals=totals), picked
+    return mle.fit(model, meas, scales, n_hat, iters * 5,
+                   t0=(rounds + 1) * iters, graphs=graphs), picked
 
 
 if __name__ == "__main__":

@@ -1,8 +1,11 @@
 # Code architecture
 
 A minimal AIM on the Adult census data, in two arms: standard differential
-privacy, and a Blowfish policy. Seven modules, 793 lines, `numpy` and nothing
+privacy, and a Blowfish policy. Seven modules, 763 lines, `numpy` and nothing
 else.
+
+**Unbounded DP throughout**, matching AIM's own definition — neighbours differ
+by adding or removing one record.
 
 ---
 
@@ -74,7 +77,6 @@ graph TD
     aim --> mle
     aim --> policy
     aim --> data
-    mle --> policy
     mle --> data
     policy --> data
     metrics --> data
@@ -91,11 +93,11 @@ mechanism produced.
 | side | module | lines | responsibility |
 |---|---|---|---|
 | mechanism | `data.py` | 81 | Load Adult into a dense joint histogram; marginalise, expand, sample |
-| mechanism | `policy.py` | 256 | Blowfish policy graphs: build, transform, sensitivity |
-| mechanism | `mle.py` | 54 | Fit a joint to a set of noisy measurements by weighted least squares |
-| mechanism | `aim.py` | 150 | The AIM loop: warm start, then SELECT / MEASURE / refit |
+| mechanism | `policy.py` | 209 | Blowfish policy graphs: build, transform, sensitivity |
+| mechanism | `mle.py` | 49 | Fit a joint to a set of noisy measurements by weighted least squares |
+| mechanism | `aim.py` | 167 | The AIM loop: warm start, then SELECT / MEASURE / refit |
 | evaluation | `metrics.py` | 88 | How far the fitted joint is from the true one |
-| evaluation | `analyze.py` | 94 | Turn `sweep.json` into tables, stock vs policy |
+| evaluation | `analyze.py` | 99 | Turn `sweep.json` into tables, stock vs policy |
 | harness | `run.py` | 70 | Sweep over budgets, arms and seeds; writes `sweep.json` |
 
 ---
@@ -125,7 +127,7 @@ error. Past roughly 20M cells this design would need Private-PGM proper.
 
 ```mermaid
 flowchart TD
-    A["uniform joint<br/>1,976,256 cells"] --> B["warm start:<br/>measure all 5 one-way marginals<br/>10% of budget"]
+    A["uniform joint<br/>1,976,256 cells"] --> B["warm start:<br/>5 one-way marginals + record count n<br/>10% of budget"]
     B --> C["mle.fit, 30 iterations"]
     C --> D{"rounds left?"}
     D -->|yes| E["SELECT<br/>exponential mechanism over<br/>10 candidate 2-way marginals"]
@@ -142,9 +144,14 @@ Tracked in zCDP throughout, because it composes by addition.
 
 | step | share | mechanism | cost |
 |---|---|---|---|
-| warm start | 10%, split 5 ways | Gaussian, `sigma_warm` | `rho = 1/(2 sigma^2)` each |
+| warm start | 10%, split **6** ways | Gaussian, `sigma_warm` | `rho = 1/(2 sigma^2)` each |
 | SELECT, per round | 45% / rounds | exponential, `eps` | `rho = eps^2/8` |
 | MEASURE, per round | 45% / rounds | Gaussian, `sigma_meas` | `rho = 1/(2 sigma^2)` |
+
+The warm start covers the 5 one-way marginals **and the record count `n`**.
+Under unbounded DP `n` is exactly what differs between neighbours, so it is not
+public and has to be measured — sensitivity 1, since no other edge changes the
+total. `mle.fit` receives that noisy `n_hat`, never `true.sum()`.
 
 Only these three touch the data. `mle.fit` and everything downstream are
 post-processing, so they are free. Both arms spend exactly the same `rho`;
@@ -153,12 +160,11 @@ what differs is what it buys.
 ### MEASURE
 
 ```python
-return x + rng.normal(0, sigma * np.sqrt(2.0), size=x.shape)
+return x + rng.normal(0, sigma * 1.0, size=x.shape)
 ```
 
-`sqrt(2)` is the bounded-DP L2 sensitivity of a marginal: changing one record
-moves it from cell `u` to cell `v`, so `x` changes by `e_u - e_v`, whose norm
-is `sqrt(2)`.
+`1` is the L2 sensitivity of a marginal: adding or removing one record moves
+exactly one cell by one, so `x` changes by `e_u`, whose norm is 1.
 
 The key property is that **the whole marginal costs the same as a single cell**
 — every record contributes a count of one to exactly one cell, so the noise
@@ -175,12 +181,17 @@ q_r = ||M_r(D) - M_r(model)||_1  -  sqrt(2/pi) * sigma * Delta * penalty
 
 The first term is how badly the current model explains marginal `r`. The second
 is what measuring it would cost anyway, so large marginals are discounted where
-noise would swamp the gain. `q_r` has sensitivity 2, which is the `2*Delta` in
-the exponential mechanism's exponent.
+noise would swamp the gain.
 
 `aim.cost` supplies `(Delta, penalty)` for whichever arm is running —
-`(sqrt(2), cell count)` for stock, `(G.delta, G.penalty)` under a policy. Stock
-is the special case `P_G = I`, so one formula serves both.
+`(1, cell count)` for stock, `(G.delta, G.penalty)` under a policy. Stock is
+the special case where the only edges are the bottom ones, so one formula
+serves both.
+
+The score's own sensitivity differs by arm, and `aim.score_sensitivity` returns
+it: **1 for stock**, because add/remove moves one cell by one, so one L1 term
+moves by one; **2 under a policy**, because a policy also admits substitution
+along a graph edge, which moves two cells.
 
 ---
 
@@ -261,11 +272,14 @@ joined.
 | workclass | partition, 4 blocks | complete inside a block, nothing across |
 | income | full protection | complete graph `K_2` |
 
-Note spec §5.2 says `I_k` for a full-protection axis, which contradicts §4.1's
-complete graph. `I_k` is the paper's Case I ⊥-star construction, i.e. the
-*unbounded* setting, while §4.1 and §6.3 commit to bounded DP. The code follows
-§4.1. It barely matters here — `income` is the only full-protection attribute
-and `k=2`, so `K_2` is a single edge.
+Spec §6.3 decision 3 specifies a different neighbour relation from the one used
+here; this implementation follows AIM's, so the sensitivity values below do not
+match the reference table in spec §7.
+
+Spec §5.2's "`I_k` for a full-protection axis" now makes sense rather than
+contradicting §4.1: `I_k` *is* the bottom-star's incidence matrix. The per-axis
+policies above are unchanged — bottom edges are added universally on top of
+them, so a full-protection axis carries both `K_k` and its bottom edges.
 
 ### The transform
 
@@ -303,23 +317,19 @@ x_G  = z[U] - z[V]  differences along each edge
 which for a line graph is exactly the cumulative histogram (Design paper,
 Example 4.1).
 
-### Grounding
+### Bottom, and why nothing is grounded
 
-The plain incidence matrix is rank deficient — the all-ones vector spans the
-null space of each component — so one vertex per connected component is folded
-into a bottom symbol (Design paper, Case II; the per-component generalisation
-is ours, since the paper assumes a connected graph). Those cells are recovered
-by subtraction.
+The graph carries an extra vertex, **bottom**, meaning "this record is
+absent". Every cell is joined to it, and the Design paper's Case I
+says a bottom-edge contributes a column with a **single `+1`** rather than a
+`+1/-1` pair. Bottom is simply vertex `k`, pinned at level zero.
 
-This is free. A record can never leave its component, so component totals are
-identical in any two neighbouring databases: sensitivity 0. Here the only
-partitioned attribute is `workclass`, so that free information is exactly its
-four block totals, `[4351, 22696, 3657, 1857]`, and `policy.renormalise` pins
-them in place of the plain `model *= n/model.sum()`.
+That makes `L = P_G P_G^T = L_graph + I`, which is positive definite, so the
+matrix is invertible as it stands. There is no rank deficiency, nothing to
+ground, and no per-component bookkeeping. `P_G x_G` returns **every** cell.
 
-Note the grounded `L` is *not* the Laplacian of the remaining subgraph: its
-diagonal still counts edges running to the drain. That is what makes it
-invertible.
+The same formula still computes the sensitivity, because bottom reads as zero:
+a bottom-edge column gives simply `Z[u,u]`.
 
 ### Sensitivity
 
@@ -327,22 +337,23 @@ invertible.
 collapses it to the **effective resistance** of the edge, so it is three array
 lookups in `Z` rather than a matrix product. This framing is ours — neither
 "Laplacian" nor "effective resistance" appears in any of the six papers — but
-it is verified both ways, and against the spec's independent reference values.
+it is verified both ways.
 
 | marginal | cells | edges | `Delta_2` |
 |---|---|---|---|
-| age | 73 | 483 | 0.4872 |
-| hours.per.week | 94 | 716 | 0.4604 |
-| education.num | 16 | 29 | 0.7862 |
-| workclass | 9 | 7 | 1.0000 |
-| age x hours | 6,862 | 97,670 | 0.3557 |
+| age | 73 | 556 | 0.4604 |
+| hours.per.week | 94 | 810 | 0.4376 |
+| education.num | 16 | 45 | 0.6802 |
+| workclass | 9 | 16 | 1.0000 |
+| income | 2 | 3 | 0.8165 |
+| age x hours | 6,862 | 104,532 | 0.3444 |
+
+Edge counts include one bottom-edge per cell, so they exceed the per-attribute
+policy graph's own edge count by exactly `k`.
 
 **`Delta_2` is not a quality measure.** It falls under a policy, but the number
-of released values rises — age publishes 483 numbers instead of 73. The policy
-is expected to lose slightly on cell-level accuracy and win on range queries.
-Read the ratio per metric, not an overall verdict.
-
----
+of released values rises — age publishes 556 numbers instead of 73. Read the
+ratio per metric, not an overall verdict.
 
 ## Key invariants
 
@@ -350,9 +361,9 @@ Read the ratio per metric, not an overall verdict.
 |---|---|---|
 | joint sums to 32,561; income splits 24,720 / 7,841 | `data.py` self-test | preprocessing is correct |
 | nothing in `mechanism/` imports `evaluation/` | `grep -rn -e metrics -e analyze experiment/mechanism/` | the privacy boundary holds |
-| stock arm gives 0.0380 / 0.2982 at `rho=0.04`, seed 0 | `aim.py` smoke test | the policy code did not disturb standard DP |
-| `Delta_2` matches spec §7 to 4 dp; a tree gives exactly 1.0 | `policy.py` self-test | the transform is correct |
-| `P_G x_G` returns the kept cells | `policy.py` self-test | the transform is lossless |
+| stock arm gives 0.0323 / 0.2904 at `rho=0.04`, seed 0 | `aim.py` smoke test | the mechanism has not drifted |
+| `L` equals `L_graph + I` | `policy.py` algebra check | bottom contributes exactly the identity |
+| `P_G x_G` returns every cell exactly | `policy.py` self-test | the transform is lossless and nothing is grounded |
 | every metric falls as `rho` rises | `analyze.py` output | budget is actually buying utility |
 
 ---
@@ -390,9 +401,8 @@ Expect `total 32561.0` and the income split above.
 .venv/bin/python experiment/mechanism/policy.py
 ```
 
-Prints the sensitivity table, the 2-way candidates, a round-trip check and the
-free block totals. `age x hours` takes ~4s and ~1.3 GB; everything else is
-instant.
+Prints the sensitivity table, the 2-way candidates and a round-trip check.
+`age x hours` takes ~4s and ~1.3 GB; everything else is instant.
 
 ### 4. End-to-end smoke test — about 4 minutes
 
@@ -403,13 +413,15 @@ instant.
 Two budgets x two arms, seed 0. Expect:
 
 ```
-rho=0.01    policy=False   50.2s  age-1way L1=0.0696  3way L1=0.3280  distinct=4
-rho=0.01    policy=True    55.2s  age-1way L1=0.0891  3way L1=0.3326  distinct=3
-rho=0.04    policy=False   57.0s  age-1way L1=0.0380  3way L1=0.2982  distinct=5
-rho=0.04    policy=True    64.4s  age-1way L1=0.0394  3way L1=0.2941  distinct=5
+rho=0.01    policy=False   52.9s  age-1way L1=0.0608  3way L1=0.3086  distinct=4
+rho=0.01    policy=True    49.6s  age-1way L1=0.0943  3way L1=0.3225  distinct=3
+rho=0.04    policy=False   55.8s  age-1way L1=0.0323  3way L1=0.2904  distinct=5
+rho=0.04    policy=True    54.6s  age-1way L1=0.0543  3way L1=0.2948  distinct=5
 ```
 
-The stock rows are the regression check — they must reproduce exactly.
+These are the regression check — they must reproduce exactly. Note the policy
+arm sits clearly *behind* stock on this cell-level metric; the payoff is on
+range and ordinal queries, not here.
 
 ### 5. The sweep — about an hour
 
@@ -441,6 +453,7 @@ nohup .venv/bin/python experiment/run.py \
 | budget split across steps | `aim.run`, the `rho_warm` / `rho_round` block |
 | candidate set or workload | `aim.CANDIDATES`, `metrics.THREE_WAY` |
 | the policy itself | `policy.POLICY` — one line per attribute |
+| the neighbour relation | `aim.SENSITIVITY`, `aim.score_sensitivity`, and the bottom-edge block in `policy.Graph.__init__` |
 | which attributes are in play | `mechanism/data.py` — `ATTRS`, `SIZES`, the loader, and `policy.POLICY` |
 | a metric | `evaluation/metrics.py`, then add it to `run.evaluate` |
 

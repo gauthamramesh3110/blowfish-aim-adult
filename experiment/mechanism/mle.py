@@ -21,11 +21,10 @@ combine correctly despite carrying different noise levels.
 """
 import numpy as np
 
-import policy
 from data import SIZES, expand, marginal
 
 
-def fit(model, meas, scales, n, iters, t0=0, lr=0.5, graphs=None, totals=None):
+def fit(model, meas, scales, n, iters, t0=0, lr=0.5, graphs=None):
     """Exponentiated gradient descent.  `t0` continues a decaying step size.
 
     Under a Blowfish policy the measurement of S lives in edge space rather
@@ -34,8 +33,7 @@ def fit(model, meas, scales, n, iters, t0=0, lr=0.5, graphs=None, totals=None):
     mapped back to cells by (P_G^-1)^T.  A missing entry means a stock
     cell-space measurement, so both kinds of measurement mix in one fit.
 
-    `totals` pins the exact partition-block counts in place of only the grand
-    total.  Both are free: they are invariant under the neighbour relation.
+    `n` is the *measured* record count under unbounded DP, not the true one.
     """
     graphs = graphs or {}
     for t in range(iters):
@@ -47,8 +45,5 @@ def fit(model, meas, scales, n, iters, t0=0, lr=0.5, graphs=None, totals=None):
         g = np.abs(grad).max()
         if g > 0:
             model *= np.exp(-(lr / (1 + (t0 + t) / 100)) * grad / g)
-        if totals:
-            policy.renormalise(model, totals)
-        else:
-            model *= n / model.sum()
+        model *= n / model.sum()
     return model
