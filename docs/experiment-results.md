@@ -87,15 +87,20 @@ invented for this project.
 ## Headline
 
 The policy is **uniformly worse per cell** and **conditionally better per
-range** — better only above a width threshold, and only once the budget is
-large enough for the transform to matter.
+range** — better only above a width threshold. Where that threshold falls, and
+how large the gain is, varies with budget and with the attribute; the full
+budget × width grid is in section 2.
 
 | | result |
 |---|---|
 | Cell accuracy | **1.02–1.19× worse**, at every budget. Policy wins **0 of 25** paired runs. |
 | Narrow ranges (width 1–2) | **1.4–2.0× worse** on age and hours. Policy wins **0 of 50** paired comparisons. |
-| Wide ranges (width >20) | **1.2–1.7× better** on age at every budget; on hours only above `rho = 0.04`, reaching **3.0×** |
+| Wide ranges (width >20) | **1.2–1.7× better** on age at every budget; on hours a wash below `rho = 0.04`, then up to **3.0×** |
 | `education.num` (θ=2) | better at **every** width once `rho ≥ 0.04` |
+
+Budget does not move all three the same way: `hours` and `education.num`
+improve monotonically with `rho`, while `age` is at its best at the *smallest*
+budget.
 
 ---
 
@@ -174,25 +179,56 @@ query, the better the policy does. `education.num` (green, θ=2) is already
 below parity at the narrowest band, because almost every interval on a 16-value
 attribute is wider than its threshold of 2.*
 
-Error ratio at `rho = 0.16`, with paired seed wins for the policy in brackets:
+And the same view at **every budget**, on a shared scale:
 
-| width band | age (θ=7) | hours (θ=8) | education.num (θ=2) |
-|---|---|---|---|
-| 1–2 | 1.49 (0/5) | 1.37 (0/5) | **0.67** (4/5) |
-| 3–5 | 1.11 (0/5) | 1.01 (2/5) | **0.57** (4/5) |
-| 6–10 | **0.78** (4/5) | **0.77** (5/5) | **0.61** (4/5) |
-| 11–20 | **0.62** (5/5) | **0.51** (5/5) | **0.71** (4/5) |
-| >20 | **0.68** (4/5) | **0.33** (5/5) | — |
+![Range error ratio by width, at each budget](figures/range-ratio-panels.svg)
 
-Widest-band ratio across the whole sweep:
+*The downward slope is present in all five panels, so the width effect is not
+an artefact of one budget. What changes is how far the lines sit below parity,
+and that moves differently per attribute — `hours` (orange) drops steadily as
+budget grows, `age` (blue) does not.*
 
-| `rho` | age >20 | hours >20 | education.num 11–20 | age 1–2 |
-|---|---|---|---|---|
-| 0.000625 | 0.60 | 1.03 | 1.15 | 1.36 |
-| 0.0025 | 0.86 | 0.98 | 0.84 | 1.92 |
-| 0.01 | 0.64 | 0.93 | 0.91 | 1.54 |
-| 0.04 | 0.81 | 0.51 | 0.79 | 1.70 |
-| 0.16 | 0.68 | 0.33 | 0.71 | 1.49 |
+The same data as numbers — **every budget × every width band**, ratio with
+paired seed wins out of 5 in brackets, bold below parity:
+
+**`age`** (θ=7)
+
+| `rho` | 1–2 | 3–5 | 6–10 | 11–20 | >20 |
+|---|---|---|---|---|---|
+| 0.000625 | 1.36 (0) | 1.10 (1) | **0.84** (4) | **0.72** (5) | **0.60** (5) |
+| 0.0025 | 1.92 (0) | 1.62 (0) | 1.24 (1) | 1.01 (3) | **0.86** (3) |
+| 0.01 | 1.55 (0) | 1.34 (0) | 1.11 (2) | **0.85** (3) | **0.64** (5) |
+| 0.04 | 1.70 (0) | 1.52 (0) | 1.19 (2) | 1.06 (2) | **0.81** (4) |
+| 0.16 | 1.49 (0) | 1.11 (0) | **0.78** (4) | **0.62** (5) | **0.68** (4) |
+
+**`hours.per.week`** (θ=8)
+
+| `rho` | 1–2 | 3–5 | 6–10 | 11–20 | >20 |
+|---|---|---|---|---|---|
+| 0.000625 | 1.52 (0) | 1.39 (1) | 1.37 (1) | 1.33 (1) | 1.03 (3) |
+| 0.0025 | 1.64 (0) | 1.44 (0) | 1.37 (0) | 1.25 (1) | **0.98** (3) |
+| 0.01 | 2.04 (0) | 1.66 (0) | 1.44 (0) | 1.20 (2) | **0.93** (3) |
+| 0.04 | 1.50 (0) | 1.22 (1) | 1.03 (3) | **0.79** (4) | **0.51** (5) |
+| 0.16 | 1.37 (0) | 1.01 (2) | **0.77** (5) | **0.51** (5) | **0.33** (5) |
+
+**`education.num`** (θ=2, no intervals wider than 20)
+
+| `rho` | 1–2 | 3–5 | 6–10 | 11–20 | >20 |
+|---|---|---|---|---|---|
+| 0.000625 | 1.48 (1) | 1.48 (0) | 1.32 (1) | 1.15 (1) | — |
+| 0.0025 | 1.27 (1) | 1.05 (1) | 1.06 (2) | **0.84** (4) | — |
+| 0.01 | 1.15 (1) | **0.80** (4) | **0.74** (4) | **0.91** (3) | — |
+| 0.04 | **0.81** (4) | **0.71** (5) | **0.73** (4) | **0.79** (3) | — |
+| 0.16 | **0.67** (4) | **0.57** (4) | **0.61** (4) | **0.71** (4) | — |
+
+**Why the detail figures use `rho = 0.16`, and where that flatters.** It is the
+largest budget, so noise is least and the shape is clearest — but it is *not* a
+neutral choice. For `hours.per.week` and `education.num` the ratios improve
+monotonically with budget, so `rho = 0.16` is their most favourable row:
+`hours` at the widest band runs 1.03 → 0.33 across the sweep. For `age` the
+opposite holds — its best widest-band ratio (0.60) is at the *smallest* budget,
+so 0.16 understates it. The panel figure and the grid above show all five
+budgets precisely so this does not have to be taken on trust.
 
 Two patterns hold across the sweep:
 

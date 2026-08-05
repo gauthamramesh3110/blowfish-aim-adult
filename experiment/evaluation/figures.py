@@ -170,8 +170,82 @@ def fig_ratio(rho):
     g.save("range-ratio.svg")
 
 
+def fig_ratio_panels():
+    """One panel per budget: ratio against width, all three ordinal attributes.
+
+    Small multiples rather than five separate files -- the point is to compare
+    across budgets, which needs them side by side and on a shared y-scale.
+    """
+    pw, ph = 250, 210                       # one panel's plot box
+    gap, top, left = 34, 76, 62
+    W2 = left + 5 * pw + 4 * gap + 96
+    H2 = top + ph + 62
+    ymax = 2.2
+
+    def px(i, j):                           # panel i, tick j
+        x0 = left + i * (pw + gap)
+        return x0 + pw * j / (len(BANDS) - 1)
+
+    def py(v):
+        return top + ph - (v / ymax) * ph
+
+    p = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W2} {H2}"'
+         f' width="{W2}" height="{H2}" role="img"'
+         f' aria-label="Range error ratio by width, at each budget">',
+         f"<style>{CSS}</style>",
+         f'<rect width="{W2}" height="{H2}" fill="var(--sf)"/>',
+         f'<text x="26" y="28" class="ti">The width effect holds at every '
+         f'budget — but not by the same amount</text>',
+         f'<text x="26" y="48" class="sub">Range error ratio, policy / stock. '
+         f'Below the dashed line the policy wins. Shared scale.</text>']
+
+    for i, rho in enumerate(RHOS):
+        for g in range(5):                  # gridlines
+            v = ymax * g / 4
+            p.append(f'<line x1="{px(i,0):.1f}" y1="{py(v):.1f}"'
+                     f' x2="{px(i,4):.1f}" y2="{py(v):.1f}"'
+                     f' stroke="var(--gr)" stroke-width="1"/>')
+            if i == 0:
+                p.append(f'<text x="{left-10}" y="{py(v)+4:.1f}" class="t"'
+                         f' text-anchor="end">{v:.1f}</text>')
+        p.append(f'<line x1="{px(i,0):.1f}" y1="{py(1.0):.1f}"'
+                 f' x2="{px(i,4):.1f}" y2="{py(1.0):.1f}" stroke="var(--ink2)"'
+                 f' stroke-width="1" stroke-dasharray="4 3"/>')
+        p.append(f'<text x="{(px(i,0)+px(i,4))/2:.1f}" y="{top-12}" class="lb"'
+                 f' fill="var(--ink)" text-anchor="middle">rho = {rho}</text>')
+        for j, b in enumerate(BANDS):       # x labels, alternating height
+            dy = 20 if j % 2 == 0 else 36
+            p.append(f'<text x="{px(i,j):.1f}" y="{top+ph+dy}" class="t"'
+                     f' text-anchor="middle">{b}</text>')
+
+        for ax, colour in zip(["0", "1", "2"], ["s1", "s2", "s3"]):
+            pts = []
+            for j, b in enumerate(BANDS):
+                s = mean(rho, False, ["range", ax, b])
+                q = mean(rho, True, ["range", ax, b])
+                if s == s and q == q:
+                    pts.append((px(i, j), py(min(q / s, ymax))))
+            d = " L".join(f"{x:.1f} {y:.1f}" for x, y in pts)
+            p.append(f'<path d="M{d}" fill="none" stroke="var(--{colour})"'
+                     f' stroke-width="2" stroke-linejoin="round"/>')
+            for x, y in pts:
+                p.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.2"'
+                         f' fill="var(--{colour})" stroke="var(--sf)"'
+                         f' stroke-width="1.5"/>')
+
+    for n, (ax, colour) in enumerate(zip(["0", "1", "2"], ["s1", "s2", "s3"])):
+        attr, theta = ORD[ax]
+        p.append(f'<text x="{W2-92}" y="{top+18+n*20}" class="lb"'
+                 f' fill="var(--{colour})">{attr.split(".")[0]} (t={theta})</text>')
+    p.append(f'<text x="26" y="{H2-10}" class="sub">interval width '
+             f'(number of adjacent values summed)</text>')
+    open(OUT + "range-ratio-panels.svg", "w").write("\n".join(p) + "\n</svg>")
+    print("wrote", OUT + "range-ratio-panels.svg")
+
+
 if __name__ == "__main__":
     fig_workload()
     fig_range("0", 0.16, "range-age.svg")
     fig_range("1", 0.16, "range-hours.svg")
     fig_ratio(0.16)
+    fig_ratio_panels()
