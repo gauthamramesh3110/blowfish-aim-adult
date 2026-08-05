@@ -33,7 +33,7 @@ def fit(model, meas, scales, n, iters, t0=0, lr=0.5, graphs=None):
     mapped back to cells by (P_G^-1)^T.  A missing entry means a stock
     cell-space measurement, so both kinds of measurement mix in one fit.
 
-    `n` is the *measured* record count under unbounded DP, not the true one.
+    `n` is the *measured* record count, not the true one.
     """
     graphs = graphs or {}
     for t in range(iters):

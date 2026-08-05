@@ -6,9 +6,9 @@
                refit the model on everything measured so far
   finally      a longer fit, then sample synthetic records
 
-Unbounded DP throughout, matching AIM: neighbours differ by adding or removing
-one record.  So a marginal has L2 sensitivity 1, and the record count n is not
-public -- it is measured alongside the 1-way marginals.
+Neighbours differ by adding or removing one record, as in AIM.  So a marginal
+has L2 sensitivity 1, and the record count n is not public -- it is measured
+alongside the 1-way marginals.
 
 Budget is tracked in zCDP throughout: the Gaussian mechanism with noise scale
 sigma costs rho = 1/(2 sigma^2), and the exponential mechanism with parameter
@@ -33,7 +33,7 @@ NDIM = len(SIZES)
 CANDIDATES = [(i, j) for i in range(NDIM) for j in range(i + 1, NDIM)]
 ONE_WAY = [(i,) for i in range(NDIM)]
 
-SENSITIVITY = 1.0       # unbounded DP: one record added or removed, x moves by e_u
+SENSITIVITY = 1.0       # one record added or removed, so x moves by e_u
 
 
 def cells(S):
@@ -119,9 +119,9 @@ def run(true, rho, seed, rounds=10, iters=30, use_policy=False):
     sigma_meas = 1.0 / np.sqrt(2 * (rho_round / 2))
     eps_select = np.sqrt(8 * (rho_round / 2))
 
-    # Under unbounded DP n is not public -- it is exactly what differs between
-    # neighbours -- so it is measured.  Sensitivity 1: a bottom edge adds or
-    # removes one record, and no other edge changes the total.
+    # n is not public -- it is exactly what differs between neighbours -- so it
+    # is measured.  Sensitivity 1: a bottom edge adds or removes one record,
+    # and no other edge changes the total.
     n_hat = n + rng.normal(0, sigma_warm * SENSITIVITY)
 
     meas, scales, repeats = {}, {}, {}

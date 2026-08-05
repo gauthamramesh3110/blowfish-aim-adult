@@ -4,8 +4,7 @@ A minimal AIM on the Adult census data, in two arms: standard differential
 privacy, and a Blowfish policy. Eight modules, 935 lines, `numpy` and nothing
 else.
 
-**Unbounded DP throughout**, matching AIM's own definition — neighbours differ
-by adding or removing one record.
+Neighbours differ by adding or removing one record, as in AIM.
 
 ---
 
@@ -153,9 +152,9 @@ Tracked in zCDP throughout, because it composes by addition.
 | MEASURE, per round | 45% / rounds | Gaussian, `sigma_meas` | `rho = 1/(2 sigma^2)` |
 
 The warm start covers the 5 one-way marginals **and the record count `n`**.
-Under unbounded DP `n` is exactly what differs between neighbours, so it is not
-public and has to be measured — sensitivity 1, since no other edge changes the
-total. `mle.fit` receives that noisy `n_hat`, never `true.sum()`.
+`n` is exactly what differs between neighbours, so it is not public and has to
+be measured — sensitivity 1, since no other edge changes the total. `mle.fit`
+receives that noisy `n_hat`, never `true.sum()`.
 
 Only these three touch the data. `mle.fit` and everything downstream are
 post-processing, so they are free. Both arms spend exactly the same `rho`;

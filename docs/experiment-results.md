@@ -8,8 +8,7 @@ policy, at matched privacy budget.
 `workclass`, and full protection on `income`. Full definition in
 [the spec](policy-aware-aim-spec.md#4-the-policy).
 
-**Unbounded DP**, matching AIM's own neighbour definition: adding or removing
-one record.
+Neighbours differ by adding or removing one record, as in AIM.
 
 **50 runs** — 5 zCDP budgets × 2 arms × 5 seeds, 43 minutes. Both arms spend
 identical `rho` on the same seeds, so every comparison below is paired.

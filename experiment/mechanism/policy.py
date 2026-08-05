@@ -14,24 +14,24 @@ so running a standard-DP mechanism on (W_G, x_G) yields the Blowfish guarantee
 on (W, x).  P_G is the signed vertex-edge incidence matrix and its right
 inverse is P_G^-1 = P_G^T (P_G P_G^T)^-1 (Design paper, Lemma 4.8).
 
-Unbounded DP is used, matching AIM: neighbours differ by adding or removing one
-record.  That is the Design paper's Case I -- the graph carries an extra vertex
-`bottom` meaning "this record is absent", every cell is joined to it, and a
-bottom-edge contributes a column with a single +1 rather than a +1/-1 pair.
+Neighbours differ by adding or removing one record, as in AIM.  That is the
+Design paper's Case I -- the graph carries an extra vertex `bottom` meaning
+"this record is absent", every cell is joined to it, and a bottom-edge
+contributes a column with a single +1 rather than a +1/-1 pair.
 
 Two consequences, both good:
 
   * P_G P_G^T = L_graph + I is positive definite, so nothing has to be grounded
     and there is no per-component bookkeeping.  `bottom` is simply vertex k,
     pinned at zero.
-  * n is no longer public -- it is exactly what differs between neighbours --
-    so aim.py measures it rather than reading it.  Partition block totals are
-    likewise no longer free; they cost budget like anything else.
+  * n is not public -- it is exactly what differs between neighbours -- so
+    aim.py measures it rather than reading it.  Partition block totals are
+    likewise not free; they cost budget like anything else.
 
-No Kronecker structure is used.  The product graph is materialised as an
-explicit edge list and L is inverted densely.  P_G itself is never built: every
-operation is a gather or scatter over the edge list.  The worst case is
-age x hours -- 6,862 cells, 104,532 edges, 4s and 1.3 GB.
+The product graph is materialised as an explicit edge list and L is inverted
+densely.  P_G itself is never built: every operation is a gather or scatter
+over the edge list.  The worst case is age x hours -- 6,862 cells, 104,532
+edges, about 6s to build and 377 MB for Z.
 """
 import numpy as np
 
@@ -90,7 +90,7 @@ def product_edges(S):
     slice of cells whose axis-`ax` value is `u`, so one per-axis edge becomes a
     whole column of cell edges at once.
 
-    This is the "no Kronecker" step: the product is enumerated directly.
+    The product is enumerated directly rather than factored per axis.
     """
     shape = [SIZES[i] for i in S]
     idx = np.arange(int(np.prod(shape))).reshape(shape)

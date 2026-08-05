@@ -151,19 +151,19 @@ on `(W, x)`. The transform is lossless; all error comes from the noise. The
 minimum-norm right inverse is `P_G⁻¹ = P_Gᵀ(P_G P_Gᵀ)⁻¹` (Design paper,
 Lemma 4.8).
 
-#### 5.1 Unbounded DP and the bottom vertex
+#### 5.1 The bottom vertex
 
-**Neighbours differ by adding or removing one record**, matching AIM's own
-definition. This is the Design paper's **Case I**: the graph carries an extra
-vertex `⊥` meaning "this record is absent", every cell is joined to it, and a
-bottom-edge contributes a column with a single `+1` rather than a `+1/−1` pair.
+**Neighbours differ by adding or removing one record**, as in AIM. This is the
+Design paper's **Case I**: the graph carries an extra vertex `⊥` meaning "this
+record is absent", every cell is joined to it, and a bottom-edge contributes a
+column with a single `+1` rather than a `+1/−1` pair.
 
 Two consequences, both of which simplify the implementation:
 
 - `P_G P_Gᵀ = L_graph + I` is positive definite, so nothing has to be grounded
   and there is no per-component bookkeeping. `⊥` is simply vertex `k`, pinned
   at level zero.
-- **`n` is no longer public** — it is exactly what differs between neighbours —
+- **`n` is not public** — it is exactly what differs between neighbours —
   so `aim.py` measures it alongside the 1-way marginals rather than reading it.
   Partition block totals are likewise not free; they cost budget like anything
   else.
@@ -173,7 +173,7 @@ Then `L = I`, `Z = I`, `Δ₂ = 1`, and the SELECT penalty collapses to the cell
 count — the transform reduces to the identity exactly. This is the strongest
 available correctness test on the machinery.
 
-#### 5.2 No Kronecker structure
+#### 5.2 Representation — an explicit edge list
 
 The product graph is materialised as an **explicit edge list** and `L` is
 inverted densely. `P_G` itself is never built: every operation is a gather or
@@ -181,9 +181,10 @@ scatter over the edge list, so `transform` is `z[U] − z[V]` and its adjoint is
 a pair of `bincount`s.
 
 This is affordable at the chosen domain sizes. The worst case is
-`age × hours.per.week` — 6,862 cells, 104,532 edges, about 7s and 1.3 GB to
-build, once, cached for the whole sweep. It would not scale to the full 13
-attributes, which is the other reason for the reduced attribute set.
+`age × hours.per.week` — 6,862 cells, 104,532 edges, about 6s to build and
+377 MB for `Z`, computed once and cached for the whole sweep. It would not
+scale to the full 13-attribute schema, which is the other reason for the
+reduced attribute set.
 
 Graphs are **data independent**: they depend only on the policy, so building
 them costs no privacy budget and they can be cached freely.
@@ -434,9 +435,9 @@ not neighbours directly, but are joined through `⊥` in two steps — a finite
 factor, not an infinite one. Block totals are therefore **not** released
 exactly; they cost budget like any other measurement.
 
-The price is paid elsewhere: `n` is no longer public and must itself be
-measured, and the partition buys less protection per unit of budget than a
-disconnected one would. There is no exact-disclosure accounting to report.
+The price is paid elsewhere: `n` is not public and must itself be measured, and
+the partition buys less protection per unit of budget than a disconnected one
+would. There is no exact-disclosure accounting to report.
 
 **Residual risk.** The policy still declines to protect *coarse* location on
 threshold attributes — that is what it is for. An adversary learns age to
