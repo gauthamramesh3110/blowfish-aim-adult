@@ -79,8 +79,8 @@ invented for this project.
 - **θ** is the policy's threshold — the width of the band of values it declines
   to distinguish. `age` θ=7, `hours.per.week` θ=8, `education.num` θ=2.
 - Both arms run the **same 5 seeds** at each of 5 budgets, so every comparison
-  is paired. "0 of 25" means 5 budgets × 5 seeds, all lost; "0 of 50" adds a
-  second attribute.
+  is paired. "0 of 25" means 5 budgets × 5 seeds, all lost. "0 of 50" is the
+  same count over two attributes (`age` and `hours.per.week`).
 
 ---
 
@@ -138,12 +138,7 @@ cells, bad for questions about one cell.
 
 *Mean error in records, against interval width, at the largest budget. Stock
 (blue) starts lower and climbs steeply; policy (orange) starts higher and
-stays flat. **The crossing is the result.***
-
-Stock error grows steeply with interval width, because a range query under
-stock AIM sums many independently noised cells and their errors accumulate. The
-policy's curve is flatter, because the same range is closer to a difference of
-two published aggregates. The two cross.
+climbs far more slowly. **The crossing is the result.***
 
 Mean error in records at `rho = 0.16` on `age`, across the five width bands:
 
@@ -155,6 +150,20 @@ Mean error in records at `rho = 0.16` on `age`, across the five width bands:
 Read along each row: stock's error grows **5.7×** across the bands (10.0 →
 57.4), the policy's only **2.6×** (14.9 → 38.3). That difference in slope is
 what produces the crossing.
+
+**Why the slopes differ.** A range query under stock AIM sums many
+independently noised cells, and their errors accumulate. The policy publishes
+numbers that are individually quieter — `Δ₂ = 0.46` on `age` against stock's
+1.0 — so the same accumulation costs less.
+
+**Two honest qualifications.** It is *not* that the policy reads fewer numbers:
+the textbook picture, where a range becomes a difference of two running totals
+and the interior cancels, does not apply to this construction, which reads
+about as many numbers as stock does (spec §9.1). And per-number noise explains
+the direction but not the size — at the widest band `hours` reaches 0.33, below
+its own `Δ₂` of 0.44, which per-number noise alone cannot produce. The fit sits
+between measurement and metric, and these two metrics cannot separate its
+contribution.
 
 ### The ratio, and where it crosses parity
 
@@ -188,9 +197,9 @@ Widest-band ratio across the whole sweep:
 Two patterns hold across the sweep:
 
 - **Narrow ranges never win.** On age and hours the 1–2 band is worse at every
-  budget, in every seed — 0 of 50 paired comparisons. A θ-band graph spends its
-  budget describing windowed aggregates, so the narrowest queries pay for
-  structure they do not use.
+  budget, in every seed — 0 of 50 paired comparisons. A narrow query reads only
+  a handful of numbers, so it gets little from each one being quieter, while
+  still paying the policy's overhead of publishing many more of them.
 - **`hours` needs budget; `age` does not.** Age wins at the widest band at all
   five budgets. Hours is a wash below `rho = 0.04` (1.03, 0.98, 0.93) and then
   improves sharply to 0.33. Note `hours.per.week` is spiked at 40, so an
@@ -204,8 +213,8 @@ Two patterns hold across the sweep:
 **The sign of the effect flips within a single metric.** Range error is worse
 at narrow widths and better at wide widths, in the same runs, on the same
 seeds. That flip is the finding, and it needs no second metric to establish.
-A mechanism that were uniformly noisier would lose at every width; one that
-were uniformly better would win at every width. Neither happened: on `age` at
+A mechanism that was uniformly noisier would lose at every width; one that was
+uniformly better would win at every width. Neither happened: on `age` at
 `rho = 0.16` the ratio runs 1.49, 1.11, 0.78, 0.62, 0.68 — it crosses. The
 policy is moving error from wide queries to narrow ones, which is what a
 threshold policy is built to do.
@@ -222,6 +231,29 @@ latter.
 threshold — and it is the one attribute below parity at every width once
 `rho ≥ 0.04`. That is consistent with the crossover being governed by θ.
 
+### A control: the cell-level cost is the representation, not the relaxation
+
+It is natural to attribute the cell-level loss to Blowfish being a weaker
+guarantee. **It is not.** Setting every attribute to *full protection* — a
+complete graph on each, which is exactly standard DP's promise, no relaxation
+at all — still loses:
+
+| `rho = 0.16` | stock | full protection | ratio | full-protection wins |
+|---|---|---|---|---|
+| workload error | 0.2993 (sd 0.0084) | 0.3264 (sd 0.0030) | **1.09** | **0/5** |
+
+Same guarantee, same budget, 5 paired seeds, and it loses every one. The
+mechanism-level prediction agrees (1.34–1.41× per marginal).
+
+The cause is that a complete graph on `age` has 2,701 edges, so the arm
+publishes **2,701 numbers to encode 73 cells**. `Δ₂` drops to 0.164, but 37×
+as many numbers swamps it.
+
+So the cell-level cost comes entirely from **choosing to release edge weights
+instead of cell counts**, and would be paid by any policy, including one that
+gives nothing away. Note also that stock AIM is *not* the full-protection case:
+it is the case where the only edges are the bottom ones (spec §5.1).
+
 ---
 
 ## 4. What they do not license
@@ -233,9 +265,10 @@ to get that run's crossover width. At `rho = 0.16` this gives a median of 4.8
 for age (θ=7, seed range 4.4–8.7) and 5.1 for hours (θ=8, range 2.1–7.3). The
 spreads overlap almost entirely, and across budgets the age median wanders from
 4.8 to 15.6. **The crossover exists; its position cannot be pinned to θ with
-this data.** The spec's falsifiable prediction — crossover at width ≈ θ — is
-therefore neither confirmed nor refuted here. More seeds, and width strata
-normalised to θ rather than the current absolute bands, would settle it.
+this data.** Spec §9.1 argues only that a threshold should exist and that θ
+sets its scale — that much holds, but nothing sharper can be claimed. More
+seeds, and width strata normalised to θ rather than the current absolute bands,
+would be needed to test a specific location.
 
 **The cell-accuracy loss is not attributed.** These two metrics cannot separate
 the transform's cost from SELECT choosing different marginals in the two arms.

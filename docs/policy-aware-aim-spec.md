@@ -210,10 +210,19 @@ if no policy:  release  x   + N(0, sigma * 1)
 else:          release  x_G + N(0, sigma * Delta_2(G))
 ```
 
-**The measurement is never reconstructed back to cell space.** Mapping
-`x̃_G` back would make cell errors unequal and correlated, with covariance
-`P_G P_Gᵀ`, which breaks the least-squares fit. Noise on `x_G` is already
-isotropic, so plain weighted least squares stays exact.
+**The measurement is never reconstructed back to cell space.** Not because the
+estimate would differ — for a single marginal it would not. Least squares in
+edge space solves `(AᵀA)·pred = Aᵀy` with `A = P_G⁻¹`, and since `AᵀA = Z` that
+reduces to `pred = P_G y`: the reconstruction is exactly what the fit already
+computes implicitly.
+
+The reason is the **weighting**. Measurements are pooled by a single scalar
+`1/scale²` each, which is only valid if the noise within a measurement is even
+across its entries. On the edges it is. Reconstructed to cells it is not —
+the covariance becomes `P_G P_Gᵀ`, unequal and correlated, and one scalar can
+no longer describe it. Staying in edge space gets the same estimate *and* keeps
+the pooling valid, so the model's prediction is pushed into edge space to meet
+the measurement rather than the reverse.
 
 Every record contributes a count of one to exactly one cell, so a whole
 marginal costs the same as a single cell would. That is why AIM measures entire
@@ -293,11 +302,30 @@ Expanding one column, `‖P_Gᵀ Z c‖² = cᵀZc` — the edge's **effective
 resistance**. It is **independent of the data**, computable from the policy
 alone at zero privacy cost, and cached per marginal shape.
 
-**Δ₂ is not a quality measure.** It *falls* as θ grows while total cell error
-*rises*, because the edge count grows faster than Δ² shrinks. A wider θ is
-stronger protection and costs more accuracy, exactly as intended. Δ₂ only
-calibrates noise per released number; it says nothing about how many numbers
-are released — `age` publishes 556 numbers instead of 73. **Never compare
+**Δ₂ is not a quality measure.** It *falls* as θ grows while cell error
+*rises*, because widening θ adds edges — and edges do two things at once. More
+edges means more parallel paths to `⊥`, which lowers the effective resistance
+and so lowers Δ₂. More edges also means literally more numbers to publish. You
+cannot have one without the other.
+
+Measured on `age`, varying θ (cell error is `Δ₂ × penalty`, from Section 6.2):
+
+| θ | edges | Δ₂ | total variance | cell error |
+|---|---|---|---|---|
+| *stock* | *73* | *1.0000* | *73.0* | *73.0* |
+| 1 | 145 | 0.7862 | 89.6 | 98.9 |
+| 3 | 286 | 0.6104 | 106.6 | 116.4 |
+| 7 | 556 | 0.4604 | 117.9 | **126.5** |
+| 15 | 1,048 | 0.3384 | 120.0 | 129.5 |
+
+Two things to read off it. **Even θ=1 already costs 1.35× on cells** — the
+cell-level price is the cost of admission for any non-trivial policy graph, not
+a tuning failure. And the total *plateaus*: past θ≈10 you buy more protection at
+almost no extra cell cost, because the falling Δ₂² has caught up with the
+rising edge count.
+
+So Δ₂ only calibrates noise per released number; it says nothing about how many
+numbers are released — `age` publishes 556 instead of 73. **Never compare
 policies by Δ₂ alone.**
 
 #### Reference values — 1-way marginals, as deployed
@@ -380,21 +408,48 @@ gain is expected to live.
 
 #### 9.1 Why range queries should improve
 
-```mermaid
-flowchart TB
-subgraph stock["Standard AIM -- sum k independently noised cells"]
-S["every cell in the range carries its own independent noise<br/>error grows as sigma*sqrt(k)"]
-end
-subgraph pol["Policy-aware AIM -- difference of two measured aggregates"]
-P["only the endpoint aggregates are read -- the interior is never summed<br/>error stays near sigma*sqrt(2), flat in k"]
-end
-```
+The textbook picture is the **prefix-sum** one: if `P_G` held running totals, a
+range query would be the difference of its two endpoints, the interior would
+cancel, and error would be flat in the width of the range.
 
-**Stated honestly:** `σ√2` is the idealised path-graph case. The deployed
-graphs are **θ-band** graphs, so `P_G` holds windowed aggregates rather than
-clean prefix sums, and graph distance is `⌈|u−v|/θ⌉`. The consequence is
-concrete and is the experiment's central prediction: **the gain should appear
-only for ranges wider than θ.**
+**That is not what this construction gives, and the difference is worth stating
+plainly.** A pure path graph with one endpoint grounded does produce running
+totals exactly — verified against `education.num`, where the edge weights come
+out as the suffix sums `[32510, 32342, 32009, …]`. But that construction only
+supports *moving* a record between values. Here a record can be **added or
+removed**, so every cell carries its own edge to `⊥` (Section 5.1) — and a
+direct link to ground at every cell is precisely what stops totals
+accumulating along the line. At θ=1 the edge weights come out small and local
+(`[−90, −154, −206, …]`), not cumulative.
+
+The consequence is concrete. For a range query `q`, the edges actually read are
+those where `q[u] ≠ q[v]`. A path edge qualifies only at the range boundary —
+but **every bottom edge inside the range qualifies**, because `q[u] − 0 = 1`
+there. So on a 16-value attribute:
+
+| range width | stock reads | prefix sums would read | this construction reads |
+|---|---|---|---|
+| 2 | 2 cells | 2 | 3 edges |
+| 4 | 4 cells | 2 | 5 edges |
+| 8 | 8 cells | 2 | 9 edges |
+| 15 | 15 cells | 2 | 16 edges |
+
+**So the gain here does not come from reading fewer numbers.** It reads about
+as many as stock does. It comes from each of those numbers being **quieter** —
+`Δ₂ = 0.46` on `age` against stock's 1.0 (Section 7).
+
+What follows is a direction, not a magnitude: the advantage should appear
+**only above some width**, since narrow queries pay the edge-count overhead
+without recovering it, while wide ones accumulate enough quieter numbers to
+come out ahead. θ sets the scale of that threshold but does not pin it.
+
+**This reasoning is measurement-level only.** Utility is scored on the fitted
+joint, and the fit pools ten rounds of measurements across overlapping
+marginals in between. The measured gains do not follow from the argument above
+in any quantitative way — at the widest band `hours` reaches 0.33, below its
+own `Δ₂` of 0.44, which per-number noise alone cannot produce. Treat this
+section as motivation for *why* a width threshold should exist, not as a
+prediction of the ratios.
 
 #### 9.2 The benchmark
 
@@ -459,12 +514,29 @@ a model. Whether the range advantage survives that projection is not answered
 here. AIM's own ablations suggest a constrained fit compresses such differences
 by roughly 3×.
 
-**SELECT under-picks threshold marginals.** The generalised penalty is larger
-for them, so budget steers away from exactly the attributes whose policy was
-adopted for range-query quality. Correct as specified, but the score measures
-cell error and has no way to express the range-query benefit. Fixing it properly
-requires workloads of general linear queries — an open problem in the AIM paper.
-Section 9.3's diagnostic exists to detect it, and it does show up.
+**The workload never reaches the mechanism.** `metrics.THREE_WAY` appears only
+in `evaluation/`; nothing in `mechanism/` imports it. AIM's score is
+`q_r = w_r(…)`, where `w_r` weights a candidate by its workload relevance —
+here every `w_r` is 1, and the candidate set is hardcoded to all ten 2-way
+marginals. So SELECT measures whatever the model currently explains worst, with
+no channel through which "these are the queries I care about" could reach it.
+
+**SELECT under-picks threshold marginals.** The generalised penalty is ~1.8×
+larger for them, so budget steers away from exactly the attributes whose policy
+was adopted for range-query quality. This is the same root cause as the item
+above: the score is driven by cell-level error alone, so it cannot express the
+range-query benefit even in principle. Fixing it properly requires workloads of
+general linear queries — an open problem in the AIM paper. Section 9.3's
+diagnostic exists to detect it, and it does show up.
+
+**The transform is applied where it cannot help.** `use_policy` builds a graph
+for *every* measured marginal, including `workclass`, `income` and
+`workclass × income` — none of which is ordinal, so no range query is ever
+asked of them. Those three cost 1.52× in cell accuracy for no possible return.
+`mle.fit` already mixes transformed and untransformed measurements (a missing
+`graphs[S]` means a stock measurement), so restricting the transform to
+marginals touching an ordinal attribute needs only a change in `aim.run`. Not
+done here, and it inflates the measured cell-level cost.
 
 **Width strata are absolute, not θ-normalised.** The bands are the same for all
 three ordinal attributes, but θ is 7, 8 and 2, so the predicted crossover falls
@@ -481,7 +553,9 @@ both source papers. Per-marginal strategies are used.
 Section 10 were not run.
 
 **Scale.** The dense-inverse, explicit-edge-list construction does not extend to
-the full 13-attribute Adult schema; `age × hours.per.week` alone is 1.3 GB.
+the full 13-attribute Adult schema. `Z` is cells × cells dense, so
+`age × hours.per.week` alone needs 377 MB, and a marginal much past ~10,000
+cells stops fitting comfortably.
 
 ## 12. Appendix: reference values
 

@@ -63,6 +63,12 @@ strictly less than DP at `rho`, so an equal-budget accuracy win is *expected*.
 What makes the result informative is that the gain has a shape — it reverses
 with query width — rather than being a uniform lift.
 
+**The cell-level cost, though, is not the relaxation's doing.** Run the same
+machinery with *full protection* on every attribute — a guarantee identical to
+standard DP, nothing given away — and it still loses 1.09×, 0 of 5 paired
+seeds. The cost comes from choosing to release **edge weights instead of cell
+counts**, and any policy would pay it.
+
 Full numbers, paired statistics and limitations: **[experiment-results.md](docs/experiment-results.md)**.
 
 ## Docs

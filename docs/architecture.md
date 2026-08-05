@@ -196,6 +196,13 @@ it: **1 for stock**, because add/remove moves one cell by one, so one L1 term
 moves by one; **2 under a policy**, because a policy also admits substitution
 along a graph edge, which moves two cells.
 
+**The workload does not appear here.** AIM's score is `w_r × (…)`, weighting a
+candidate by its workload relevance; every `w_r` is 1 in this implementation and
+`CANDIDATES` is hardcoded to all ten 2-way marginals. `metrics.THREE_WAY` — the
+workload — lives in `evaluation/` and is never imported by `mechanism/`. So
+SELECT measures whatever the model currently explains worst, with no channel by
+which the queries you care about could influence it. See spec §11.
+
 ---
 
 ## How marginals of different shapes are fitted together
@@ -313,8 +320,13 @@ z    = Z @ x        levels
 x_G  = z[U] - z[V]  differences along each edge
 ```
 
-which for a line graph is exactly the cumulative histogram (Design paper,
-Example 4.1).
+For a **pure** line graph this is exactly the cumulative histogram (Design
+paper, Example 4.1) — verified on `education.num`, where a path graph with one
+end grounded reproduces the suffix sums. **The graphs here are not pure**: a
+bottom edge on every cell gives each one a direct link to ground, so levels
+never accumulate along the line and the weights come out local rather than
+cumulative. See spec §9.1 — this is why a width-`w` range query reads `w+1`
+edges rather than 2.
 
 ### Bottom, and why nothing is grounded
 
@@ -401,7 +413,7 @@ Expect `total 32561.0` and the income split above.
 ```
 
 Prints the sensitivity table, the 2-way candidates and a round-trip check.
-`age x hours` takes ~4s and ~1.3 GB; everything else is instant.
+`age x hours` takes ~6s and 377 MB for `Z`; everything else is instant.
 
 ### 4. End-to-end smoke test — about 4 minutes
 
