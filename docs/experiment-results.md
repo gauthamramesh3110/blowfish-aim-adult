@@ -1,34 +1,87 @@
 # Policy-aware AIM on Adult — results
 
-Stock AIM under standard differential privacy against AIM under the Blowfish
-policy of `policy.POLICY`, at matched privacy budget.
+Stock AIM under standard differential privacy, against AIM under a Blowfish
+policy, at matched privacy budget.
 
-**Unbounded DP**, matching AIM's own neighbour definition — adding or removing
+**The policy** puts threshold graphs on the three ordinal attributes — `age`
+θ=7, `hours.per.week` θ=8, `education.num` θ=2 — a 4-block partition on
+`workclass`, and full protection on `income`. Full definition in
+[the spec](policy-aware-aim-spec.md#4-the-policy).
+
+**Unbounded DP**, matching AIM's own neighbour definition: adding or removing
 one record.
 
-**50 runs** — 5 zCDP budgets × 2 arms × 5 seeds, 2,563s. Both arms spend
-identical `rho`, on the same seeds, so every comparison below is paired.
+**50 runs** — 5 zCDP budgets × 2 arms × 5 seeds, 43 minutes. Both arms spend
+identical `rho` on the same seeds, so every comparison below is paired.
 
 Raw output: `experiment/results/sweep.json`. Reproduce with
 `python experiment/evaluation/analyze.py`.
 
 ---
 
-## The two metrics
+## What is being measured
 
-This report is deliberately built on two metrics, no more.
+Each run produces a **fitted joint** — a histogram over the same
+`73 × 94 × 16 × 9 × 2` = 1,976,256 cells as the real data, summing to the same
+32,561 records. Every metric compares that against the true joint. Two metrics,
+and deliberately only two.
 
-| metric | definition | source |
-|---|---|---|
-| **Workload error** | mean over all ten 3-way marginals of `‖x_S − x̂_S‖₁ / n` | **AIM** (McKenna et al., VLDB 2022) — its native metric, same 3-way workload |
-| **Range error, by width** | `D = cumsum(x̂_a − x_a)`; error of `[lo, hi)` is `|D[hi] − D[lo]|`; averaged within width bands, over every interval on each ordinal attribute | **Blowfish Design paper** (Haney, Machanavajjhala, Ding, 2015) — range queries under threshold policies are its motivating workload |
+### Metric A — workload error, for cell-level accuracy
 
-Neither is invented for this project. AIM supplies the cell-level metric; it has
-no metric that can express what a threshold policy changes, so the range-query
-benchmark comes from the Blowfish line the transform itself is taken from.
+Sum the joint down to each of the ten 3-way marginals (`C(5,3) = 10`) and take
+the total absolute discrepancy, normalised by `n`:
 
-Every number is an error, so lower is better, and every ratio is
-`policy / stock` — **above 1.00 means the policy is worse**.
+```
+workload error = mean over the 10 marginals of  ‖x_S − x̂_S‖₁ / n
+```
+
+**Scale.** Both histograms sum to `n`, so this runs from 0 to 2. Every
+misplaced record is counted twice — once where it is missing, once where it is
+wrongly added — so **0.30 means roughly 15% of the population sits in the wrong
+cell**.
+
+*Source:* **AIM** (McKenna et al., VLDB 2022). This is AIM's own metric on its
+own all-3-way workload, which is what makes the column comparable to published
+numbers.
+
+### Metric B — range error, for interval queries
+
+A range query asks *"how many people are aged between 30 and 45?"* — a
+contiguous run of a 1-way marginal. Every such interval is evaluated
+exhaustively, with no sampling: **2,701** on `age`, **4,465** on
+`hours.per.week`, **136** on `education.num`. All of them fall out of one
+cumulative sum — with `D = cumsum(x̂_a − x_a)` prefixed by zero, the error of
+`[lo, hi)` is `|D[hi] − D[lo]|`.
+
+**Units: records.** An error of 56 means that interval's estimated headcount
+was off by 56 people. These are *not* normalised.
+
+**Stratified by width, never pooled.** Intervals are grouped by how many
+adjacent values they span:
+
+| width band | 1–2 | 3–5 | 6–10 | 11–20 | >20 |
+|---|---|---|---|---|---|
+| intervals on `age` | 145 | 210 | 330 | 585 | 1,431 |
+
+The policy is worse on narrow intervals and better on wide ones. Pooling them
+into a single average lets the two cancel and reports nothing, so every ratio
+below is read **per band**.
+
+*Source:* **Blowfish Design paper** (Haney, Machanavajjhala, Ding, 2015) —
+range queries under threshold policies are its motivating workload. AIM has no
+metric that can express what a threshold policy changes, so this one comes from
+the Blowfish line the transform itself is taken from. Neither metric is
+invented for this project.
+
+### How to read the tables
+
+- Every number is an **error**: lower is better.
+- Every ratio is **policy / stock**: **above 1.00 means the policy is worse**.
+- **θ** is the policy's threshold — the width of the band of values it declines
+  to distinguish. `age` θ=7, `hours.per.week` θ=8, `education.num` θ=2.
+- Both arms run the **same 5 seeds** at each of 5 budgets, so every comparison
+  is paired. "0 of 25" means 5 budgets × 5 seeds, all lost; "0 of 50" adds a
+  second attribute.
 
 ---
 
@@ -50,6 +103,9 @@ large enough for the transform to matter.
 ## 1. Cell-level accuracy — the cost
 
 ![3-way workload error](figures/workload-error.svg)
+
+*Both arms improve as budget grows, and the orange policy line sits above the
+blue stock line at every point. The gap narrows but never closes.*
 
 | `rho` | stock | sd | policy | sd | ratio | policy wins |
 |---|---|---|---|---|---|---|
@@ -81,17 +137,34 @@ cells, bad for questions about one cell.
 
 ![Range-query error on hours.per.week](figures/range-hours.svg)
 
-Stock error grows steeply with interval width — a range query under stock AIM
-sums many independently noised cells. The policy's curve is flatter, because
-the same range is closer to a difference of two published aggregates. The two
-cross.
+*Mean error in records, against interval width, at the largest budget. Stock
+(blue) starts lower and climbs steeply; policy (orange) starts higher and
+stays flat. **The crossing is the result.***
 
-At `rho = 0.16` on age, stock runs 10.0 → 56.2 across the width bands while the
-policy runs 14.9 → 38.3.
+Stock error grows steeply with interval width, because a range query under
+stock AIM sums many independently noised cells and their errors accumulate. The
+policy's curve is flatter, because the same range is closer to a difference of
+two published aggregates. The two cross.
+
+Mean error in records at `rho = 0.16` on `age`, across the five width bands:
+
+| | 1–2 | 3–5 | 6–10 | 11–20 | >20 |
+|---|---|---|---|---|---|
+| stock | **10.0** | **21.2** | 37.3 | 57.4 | 56.2 |
+| policy | 14.9 | 23.5 | **28.9** | **35.7** | **38.3** |
+
+Read along each row: stock's error grows **5.7×** across the bands (10.0 →
+57.4), the policy's only **2.6×** (14.9 → 38.3). That difference in slope is
+what produces the crossing.
 
 ### The ratio, and where it crosses parity
 
 ![Range error ratio by width](figures/range-ratio.svg)
+
+*The same data as a ratio. All three lines fall left to right — the wider the
+query, the better the policy does. `education.num` (green, θ=2) is already
+below parity at the narrowest band, because almost every interval on a 16-value
+attribute is wider than its threshold of 2.*
 
 Error ratio at `rho = 0.16`, with paired seed wins for the policy in brackets:
 
@@ -131,18 +204,19 @@ Two patterns hold across the sweep:
 
 **The sign of the effect flips within a single metric.** Range error is worse
 at narrow widths and better at wide widths, in the same runs, on the same
-seeds. That flip is the finding, and it needs no second metric family to
-establish: a mechanism that were simply noisier, or simply better, could not
-produce it. The policy is not trading accuracy for accuracy at random — it is
-moving error from wide queries to narrow ones, which is what a threshold policy
-is supposed to do.
+seeds. That flip is the finding, and it needs no second metric to establish.
+A mechanism that were uniformly noisier would lose at every width; one that
+were uniformly better would win at every width. Neither happened: on `age` at
+`rho = 0.16` the ratio runs 1.49, 1.11, 0.78, 0.62, 0.68 — it crosses. The
+policy is moving error from wide queries to narrow ones, which is what a
+threshold policy is built to do.
 
-**Cell error tells you the price is real and always paid.** Workload error is
-the control. If the policy were winning on ranges by being quietly weaker
-overall, cell error would not be uniformly worse — it would be uniformly
-better. It is uniformly worse, 25 runs for 25, which is what a genuine
-trade looks like rather than a sensitivity bug. A cell-error ratio below 0.9×
-would have indicated the latter.
+**Cell error shows the price is real and always paid.** Workload error is the
+control. If the policy were winning on ranges merely by being quietly weaker
+overall, cell error would be uniformly *better*, not worse. It is worse in all
+25 paired runs, which is what a genuine trade looks like rather than a
+sensitivity bug — a cell-error ratio below 0.9× would have indicated the
+latter.
 
 **The smallest-θ attribute behaves differently, in the predicted direction.**
 `education.num` has θ=2, so almost every measured interval is wider than its
@@ -153,9 +227,11 @@ threshold — and it is the one attribute below parity at every width once
 
 ## 4. What they do not license
 
-**The crossover location is not resolvable at 5 seeds.** Interpolating each
-paired run's parity crossing gives, at `rho = 0.16`, a median width of 4.8 for
-age (θ=7, seed range 4.4–8.7) and 5.1 for hours (θ=8, range 2.1–7.3). The
+**The crossover location is not resolvable at 5 seeds.** For each seed
+separately, take the five band ratios, find the pair of adjacent bands where
+the ratio crosses 1.0, and interpolate log-linearly between their mean widths
+to get that run's crossover width. At `rho = 0.16` this gives a median of 4.8
+for age (θ=7, seed range 4.4–8.7) and 5.1 for hours (θ=8, range 2.1–7.3). The
 spreads overlap almost entirely, and across budgets the age median wanders from
 4.8 to 15.6. **The crossover exists; its position cannot be pinned to θ with
 this data.** The spec's falsifiable prediction — crossover at width ≈ θ — is

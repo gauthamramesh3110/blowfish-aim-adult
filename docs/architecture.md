@@ -1,7 +1,7 @@
 # Code architecture
 
 A minimal AIM on the Adult census data, in two arms: standard differential
-privacy, and a Blowfish policy. Seven modules, 776 lines, `numpy` and nothing
+privacy, and a Blowfish policy. Eight modules, 935 lines, `numpy` and nothing
 else.
 
 **Unbounded DP throughout**, matching AIM's own definition — neighbours differ
@@ -12,10 +12,13 @@ by adding or removing one record.
 ## Layout
 
 ```
+README.md                  the gist and the headline result
 dataset/adult.csv          32,561 records, the only input
 docs/
   architecture.md          this file
+  experiment-results.md    what was measured and what it showed
   policy-aware-aim-spec.md the specification
+  figures/                 SVGs, written by figures.py
   papers/                  the source papers
 experiment/
   mechanism/               the DP algorithm -- data.py, policy.py, mle.py, aim.py
@@ -244,9 +247,10 @@ Anything not pinned down by a measured marginal comes out at its
 and the fit returns age and income conditionally independent given workclass.
 That is the model class, not a bug — and it is why SELECT matters.
 
-The fit does not converge tightly, and does not need to: at `rho=0.04` the
-measurement itself sits about 2,060 in L1 away from the truth, so driving the
-fit residual below that would be fitting noise.
+The fit does not converge tightly, and does not need to. At `rho=0.04` a
+measured marginal carries `sigma * sqrt(2/pi)` = **13.3 records of noise per
+cell** in expectation, so driving the fit residual much below that would be
+fitting noise.
 
 Under a policy the residual is taken in **edge space**, where the noise
 actually is and where it stays isotropic, then mapped back to cells. A missing
@@ -273,14 +277,8 @@ joined.
 | workclass | partition, 4 blocks | complete inside a block, nothing across |
 | income | full protection | complete graph `K_2` |
 
-Spec §6.3 decision 3 specifies a different neighbour relation from the one used
-here; this implementation follows AIM's, so the sensitivity values below do not
-match the reference table in spec §7.
-
-Spec §5.2's "`I_k` for a full-protection axis" now makes sense rather than
-contradicting §4.1: `I_k` *is* the bottom-star's incidence matrix. The per-axis
-policies above are unchanged — bottom edges are added universally on top of
-them, so a full-protection axis carries both `K_k` and its bottom edges.
+Bottom edges are added universally on top of these, so a full-protection axis
+carries both `K_k` and its bottom edges.
 
 ### The transform
 
@@ -295,10 +293,11 @@ per edge, `+1`/`-1` at the endpoints — and its right inverse is
 
 ### How it is computed
 
-`P_G` is **never built**. For `age x hours` it would be 6,861 x 97,670, or
-5.36 GB, of which 99.97% is zeros — every column holds exactly two non-zeros.
-Instead `Graph` keeps two arrays, `U` and `V`, holding each edge's endpoints —
-1.6 MB, the same information. Both matrix products become index operations:
+`P_G` is **never built**. For `age x hours` it would be 6,862 x 104,532, or
+5.74 GB, of which over 99.9% is zeros — every column holds at most two
+non-zeros. Instead `Graph` keeps two arrays, `U` and `V`, holding each edge's
+endpoints — 1.7 MB, the same information. Both matrix products become index
+operations:
 
 | operation | implemented as | cost |
 |---|---|---|
@@ -307,8 +306,8 @@ Instead `Graph` keeps two arrays, `U` and `V`, holding each edge's endpoints —
 
 What *is* built densely is `L = P_G P_G^T`, the grounded Laplacian — diagonal =
 degree, `-1` where two cells are joined — and its inverse `Z`. That is
-cells x cells, so 377 MB and 4 seconds for the worst case, computed once and
-cached. The transform is then two steps:
+cells x cells, so 377 MB and about 6 seconds for the worst case, computed once
+and cached. The transform is then two steps:
 
 ```
 z    = Z @ x        levels
@@ -336,9 +335,9 @@ a bottom-edge column gives simply `Z[u,u]`.
 
 `Delta_2` is the max column L2 norm of `P_G^-1 P_G`. Expanding that column
 collapses it to the **effective resistance** of the edge, so it is three array
-lookups in `Z` rather than a matrix product. This framing is ours — neither
-"Laplacian" nor "effective resistance" appears in any of the six papers — but
-it is verified both ways.
+lookups in `Z` rather than a matrix product. The effective-resistance framing is
+ours rather than the papers'; `policy.py` verifies it against the direct matrix
+computation.
 
 | marginal | cells | edges | `Delta_2` |
 |---|---|---|---|
@@ -362,7 +361,7 @@ ratio per metric, not an overall verdict.
 |---|---|---|
 | joint sums to 32,561; income splits 24,720 / 7,841 | `data.py` self-test | preprocessing is correct |
 | nothing in `mechanism/` imports `evaluation/` | `grep -rn -e metrics -e analyze experiment/mechanism/` | the privacy boundary holds |
-| stock arm gives 0.0323 / 0.2904 at `rho=0.04`, seed 0 | `aim.py` smoke test | the mechanism has not drifted |
+| stock arm gives age-1way 0.0323 and `(0,2,4)` 0.2904 at `rho=0.04`, seed 0 | `aim.py` smoke test | the mechanism has not drifted |
 | `L` equals `L_graph + I` | `policy.py` algebra check | bottom contributes exactly the identity |
 | `P_G x_G` returns every cell exactly | `policy.py` self-test | the transform is lossless and nothing is grounded |
 | every metric falls as `rho` rises | `analyze.py` output | budget is actually buying utility |

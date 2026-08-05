@@ -23,10 +23,24 @@ The mechanism releases weights on the policy graph's **edges** rather than
 counts on its **cells** (`x_G = P_G⁻¹x`, from the Design paper). Noise goes
 there, where it stays isotropic, and is never reconstructed back.
 
+## How it is measured
+
+Two metrics, both taken from the literature rather than invented here:
+
+- **Workload error** — the mean L1 error over all ten 3-way marginals,
+  normalised by `n`. This is AIM's own metric, and it measures *cell-level*
+  accuracy. It is the guardrail: the policy is expected to cost something here.
+- **Range error** — the error of every interval query on an ordinal attribute
+  ("how many people are aged 30–45?"), in records, grouped by the interval's
+  **width**: how many adjacent values it spans. This is where the gain is
+  expected to live, and it is only meaningful *per width band* — the policy is
+  worse on narrow intervals and better on wide ones, so a pooled average would
+  cancel the effect out.
+
 ## What we found
 
-Both arms spend identical budget on identical seeds — 50 paired runs across
-five budgets.
+50 runs — 5 budgets × 2 arms × 5 seeds, with both arms on identical seeds, so
+every comparison is paired.
 
 **The policy is uniformly worse per cell and conditionally better per range.**
 The sign of the effect flips with query width, which is exactly the shape a
@@ -34,11 +48,15 @@ threshold policy predicts:
 
 ![Range error ratio by interval width](docs/figures/range-ratio.svg)
 
+*Range error, policy ÷ stock, against interval width. Below 1.0 the policy
+wins. All three lines fall left to right: the wider the query, the better the
+policy does.*
+
 | | result |
 |---|---|
-| Cell accuracy (AIM's own metric) | **1.02–1.19× worse**, at every budget — the policy wins 0 of 25 paired runs |
-| Narrow ranges (width 1–2) | **1.4–2.0× worse** — 0 of 50 paired comparisons |
-| Wide ranges (width >20) | **1.2–1.7× better** on `age` at every budget; up to **3.0×** on `hours.per.week` |
+| Cell accuracy (AIM's own metric) | **1.02–1.19× worse**, at every budget — the policy loses all 25 paired runs |
+| Narrow ranges (width 1–2 values) | **1.4–2.0× worse** — loses all 50 paired comparisons |
+| Wide ranges (width >20 values) | **1.2–1.7× better** on `age` at every budget; up to **3.0×** on `hours.per.week` |
 
 **Read this against the caveat, not around it:** Blowfish at `rho` guarantees
 strictly less than DP at `rho`, so an equal-budget accuracy win is *expected*.
