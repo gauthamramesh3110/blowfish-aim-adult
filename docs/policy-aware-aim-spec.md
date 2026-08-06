@@ -472,8 +472,15 @@ infinite graph distance, meaning block membership is disclosed exactly, in the
 clear, at no budget. That is the one place a Blowfish policy gives up something
 differential privacy never would.
 
-**It does not happen here.** Every cell carries a bottom-edge, so `⊥` connects
-the whole graph. Verified on the deployed policy:
+**Whether it happens depends on the neighbour relation**, because that decides
+whether the bottom edges are moves an adversary can make or only a device for
+grounding `L`.
+
+**Unbounded — it does not happen.** Every cell carries a bottom edge and
+add/remove *is* a neighbour move, so `⊥` joins the whole graph. Two databases
+differing in one record's `workclass` across a block boundary are not
+neighbours directly, but are joined through `⊥` in two steps — a finite factor,
+not an infinite one. Block totals cost budget like any other measurement.
 
 | marginal | components without `⊥` | components with `⊥` |
 |---|---|---|
@@ -481,14 +488,25 @@ the whole graph. Verified on the deployed policy:
 | `workclass × income` | 4 | **1** |
 | `age` | 1 | **1** |
 
-Two databases differing in one record's `workclass` across a block boundary are
-not neighbours directly, but are joined through `⊥` in two steps — a finite
-factor, not an infinite one. Block totals are therefore **not** released
-exactly; they cost budget like any other measurement.
+**Bounded — it does happen.** `n` is public, so a record cannot appear or
+vanish and the ground edges are not neighbour moves; `policy.Graph` excludes
+them from `Δ₂` for exactly that reason. The neighbour relation is then the
+policy edges alone, and those leave `workclass` in **4 components** with no
+path between them. Block membership is disclosed exactly. Five of the fifteen
+measured marginals are affected — every one that includes `workclass`:
 
-The price is paid elsewhere: `n` is not public and must itself be measured, and
-the partition buys less protection per unit of budget than a disconnected one
-would. There is no exact-disclosure accounting to report.
+| marginal | components under bounded DP |
+|---|---|
+| `workclass` | 4 |
+| `age × workclass` | 4 |
+| `hours.per.week × workclass` | 4 |
+| `education.num × workclass` | 4 |
+| `workclass × income` | 4 |
+
+All ten remaining marginals are connected, so only the `workclass` partition
+carries this cost. It is a property of pairing a partition policy with bounded
+DP, not of the implementation, and it cannot be mitigated by spending more
+budget.
 
 **Residual risk.** The policy still declines to protect *coarse* location on
 threshold attributes — that is what it is for. An adversary learns age to
