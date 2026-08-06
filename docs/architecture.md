@@ -330,11 +330,14 @@ x_G  = z[U] - z[V]  differences along each edge
 
 For a **pure** line graph this is exactly the cumulative histogram (Design
 paper, Example 4.1) — verified on `education.num`, where a path graph with one
-end grounded reproduces the suffix sums. **The graphs here are not pure**: a
-bottom edge on every cell gives each one a direct link to ground, so levels
-never accumulate along the line and the weights come out local rather than
-cumulative. See spec §9.1 — this is why a width-`w` range query reads `w+1`
-edges rather than 2.
+end grounded reproduces the suffix sums.
+
+How close the deployed graphs come to that depends on the bottom edges. Under
+**bounded** there is one ground per component, nothing inside a range touches
+it, and levels accumulate much as the textbook case predicts — a range query's
+edge count saturates rather than tracking the width. Under **unbounded** every
+cell has its own link to ground, so levels stay local and the edge count grows
+with width. Spec §9.1 has the counts.
 
 ### Bottom, and why nothing is grounded
 
@@ -358,17 +361,18 @@ lookups in `Z` rather than a matrix product. The effective-resistance framing is
 ours rather than the papers'; `policy.py` verifies it against the direct matrix
 computation.
 
-| marginal | cells | edges | `Delta_2` |
-|---|---|---|---|
-| age | 73 | 556 | 0.4604 |
-| hours.per.week | 94 | 810 | 0.4376 |
-| education.num | 16 | 45 | 0.6802 |
-| workclass | 9 | 16 | 1.0000 |
-| income | 2 | 3 | 0.8165 |
-| age x hours | 6,862 | 104,532 | 0.3444 |
+| marginal | cells | bounded edges | bounded `Delta_2` | unbounded edges | unbounded `Delta_2` |
+|---|---|---|---|---|---|
+| age | 73 | 484 | 0.4872 | 556 | 0.4604 |
+| hours.per.week | 94 | 717 | 0.4604 | 810 | 0.4376 |
+| education.num | 16 | 30 | 0.7862 | 45 | 0.6802 |
+| workclass | 9 | 11 | 1.0000 | 16 | 1.0000 |
+| income | 2 | 2 | 1.0000 | 3 | 0.8165 |
+| age x hours | 6,862 | 97,671 | 0.3557 | 104,532 | 0.3444 |
 
-Edge counts include one bottom-edge per cell, so they exceed the per-attribute
-policy graph's own edge count by exactly `k`.
+Edge counts include the bottom edges: `k` of them under unbounded (one per
+cell), one per connected component under bounded — so `workclass`, whose four
+blocks are four components, carries 4 rather than 9.
 
 `Delta_2` calibrates noise per released number. It falls under a policy while
 the number of released values rises — age publishes 556 numbers instead of 73 —

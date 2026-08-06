@@ -405,42 +405,46 @@ The first is the no-regression guardrail; a ratio below 0.9× would indicate a
 bug in the sensitivity calculation rather than a result. The second is where a
 threshold policy is expected to act.
 
-#### 9.1 Why range queries should improve
+#### 9.1 Why range queries should improve — and how much depends on the relation
 
 The textbook picture is the **prefix-sum** one: if `P_G` held running totals, a
 range query would be the difference of its two endpoints, the interior would
-cancel, and error would be flat in the width of the range.
+cancel, and error would be flat in the width of the range. A pure path graph
+with one endpoint grounded does produce exactly that — verified against
+`education.num`, where the edge weights come out as the suffix sums
+`[32510, 32342, 32009, …]`.
 
-**That is not what this construction gives, and the difference is worth stating
-plainly.** A pure path graph with one endpoint grounded does produce running
-totals exactly — verified against `education.num`, where the edge weights come
-out as the suffix sums `[32510, 32342, 32009, …]`. But that construction only
-supports *moving* a record between values. Here a record can be **added or
-removed**, so every cell carries its own edge to `⊥` (Section 5.1) — and a
-direct link to ground at every cell is precisely what stops totals
-accumulating along the line. At θ=1 the edge weights come out small and local
-(`[−90, −154, −206, …]`), not cumulative.
+**Whether this construction gets that behaviour depends on how many bottom
+edges it has** (Section 5.1). For a range query `q`, the edges actually read are
+those where `q[u] ≠ q[v]`. A policy edge qualifies only near the range boundary
+— but **a bottom edge inside the range always qualifies**, since `q[u] − 0 = 1`
+there. Counting non-zeros of `W_G = q·P_G` on `age` (θ=7):
 
-The consequence is concrete. For a range query `q`, the edges actually read are
-those where `q[u] ≠ q[v]`. A path edge qualifies only at the range boundary —
-but **every bottom edge inside the range qualifies**, because `q[u] − 0 = 1`
-there. So on a 16-value attribute:
-
-| range width | stock reads | prefix sums would read | this construction reads |
+| range width | stock reads | **bounded** reads | **unbounded** reads |
 |---|---|---|---|
-| 2 | 2 cells | 2 | 3 edges |
-| 4 | 4 cells | 2 | 5 edges |
-| 8 | 8 cells | 2 | 9 edges |
-| 15 | 15 cells | 2 | 16 edges |
+| 2 | 2 | 14 | 15 |
+| 4 | 4 | 23 | 26 |
+| 8 | 8 | **29** | 36 |
+| 20 | 20 | **29** | 48 |
+| 40 | 40 | **29** | 68 |
 
-**So the gain here does not come from reading fewer numbers.** It reads about
-as many as stock does. It comes from each of those numbers being **quieter** —
-`Δ₂ = 0.46` on `age` against stock's 1.0 (Section 7).
+- **Bounded** has one ground edge for the whole component, so nothing inside a
+  range touches it. The count **saturates at 29** and stops growing: the
+  interior cancels and only the boundary is read, which is the textbook
+  behaviour.
+- **Unbounded** has one bottom edge per cell — 73 of them — so every cell inside
+  the range contributes one. The count **keeps growing with width**,
+  reinstating the per-cell reading the transform was meant to avoid. Its gain
+  cannot come from reading fewer numbers; it reads about as many as stock.
+
+What both share is that each released number is **quieter** — `Δ₂` of 0.4872
+bounded and 0.4604 unbounded on `age`, against a stock arm at √2 and 1
+respectively (Section 7).
 
 The design implication is a direction, not a magnitude: narrow queries pay the
-edge-count overhead without recovering it, while wide ones accumulate enough
-quieter numbers to offset it, so any advantage should appear only above some
-width. θ sets the scale of that threshold but does not pin it.
+edge-count overhead without recovering it, while wide ones read enough quieter
+numbers to offset it, so any advantage should appear only above some width. θ
+sets the scale of that threshold but does not pin it.
 
 **This reasoning is measurement-level only.** Utility is scored on the fitted
 joint, and the fit pools ten rounds of measurements across overlapping

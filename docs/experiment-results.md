@@ -172,10 +172,16 @@ point sits between the 3–5 and 6–10 bands in three of the four arms.
 *Left panel bounded, right panel unbounded. Below the dashed line the policy arm
 has lower error than stock under the same definition. `rho = 0.16`.*
 
-**What the panels show.** All six lines fall left to right, so the direction of
-the effect is the same under both definitions — it is a property of what is
-released, not of the guarantee. The panels differ in where the lines sit, not in
-their shape.
+**What the panels show.** Every line starts at its worst on the narrowest band
+and improves from there, under both definitions — so the direction of the effect
+is a property of what is released, not of the guarantee. The panels differ in
+how far the lines drop, not in that they drop.
+
+The fall is not monotone to the end. `hours.per.week` (orange) declines
+throughout in both panels; `age` (blue) ticks back up at the widest band
+(0.60 → 0.68 bounded); `education.num` (green) is U-shaped, bottoming at 3–5
+and rising again by 11–20. Section 4.3 shows this is systematic rather than
+noise at this budget.
 
 ### 4.3 Every budget × every width band
 
@@ -187,20 +193,26 @@ definition, orange where it is higher, deeper colour further from parity. The
 number is the ratio. Blank cells: `education.num` has 16 values, so no interval
 is wider than 20.*
 
-**What the grid shows.** Three patterns, none of which depends on picking a
-budget:
+**What the grid shows.** Four patterns, none of which depends on picking a
+budget. Each row of a panel is one curve; there are 30 of them.
 
-1. **Every panel gets bluer left to right.** The transform's advantage grows
-   with interval width, at all five budgets, on all three attributes, under both
-   privacy definitions. Counting cells below parity: `age` 19/25 bounded and
-   10/25 unbounded, `hours.per.week` 14/25 and 7/25, `education.num` 16/20 and
-   12/20.
-2. **The bounded panels are bluer than the unbounded ones.** Comparing the same
+1. **The narrowest band is never the best one — in all 30 curves.** The
+   transform's advantage always improves off the left edge, and the widest band
+   beats the narrowest in 28 of 30. Counting cells below parity: `age` 19/25
+   bounded and 10/25 unbounded, `hours.per.week` 14/25 and 7/25,
+   `education.num` 16/20 and 12/20.
+2. **But the improvement is not monotone — only 18 of 30 curves fall
+   throughout.** The minimum lands on the widest band in 18 curves and earlier
+   in the other 12.
+3. **The bounded panels are bluer than the unbounded ones.** Comparing the same
    attribute-budget-band cell across the two definitions, **the bounded ratio is
    better in 60 of 70 cells.**
-3. **`education.num` flips wholesale at higher budgets.** With θ=2 on a 16-value
-   domain almost every interval is wider than the threshold, and from
-   `rho = 0.04` upward the whole panel is blue — reaching 0.23 under bounded DP.
+4. **`education.num` behaves differently from the other two.** All ten of its
+   curves are U-shaped, bottoming at the 3–5 or 6–10 band and rising again by
+   11–20; on a 16-value domain the 11–20 band holds only near-whole-domain
+   queries, which both arms answer against the same fixed total. It is also the
+   attribute that flips wholesale with budget: from `rho = 0.04` upward the
+   entire bounded panel is blue, reaching 0.23.
 
 Exact values including paired seed counts: `python experiment/evaluation/analyze.py`.
 
@@ -275,11 +287,12 @@ of them, so their noise accumulates. It pays on ranges because each of those
 numbers is individually quieter, and a wide interval reads enough of them for
 that to dominate.
 
-**The sign flip is the substantive result.** A mechanism that were uniformly
+**The sign flip is the substantive result.** A mechanism that was uniformly
 noisier would lose at every width; one uniformly better would win at every
-width. Neither happens in any of the 140 cells of the grid. Error is being
-*moved* from wide queries to narrow ones, which is what a threshold policy is
-built to do.
+width. Neither describes any of the 30 curves in the grid: in all 30 the
+narrowest band is the transform's worst, and in 28 the widest beats it. Error is
+being *moved* from wide queries to narrow ones, which is what a threshold policy
+is built to do.
 
 ### 7.2 The relaxation is worth something, and only bounded DP can spend it
 
@@ -298,9 +311,11 @@ relaxes obligations about **substitutions** — "you needn't hide age 30 from ag
 | **bounded DP** | every pair `u→v` is one neighbour step, sensitivity √2 | **large** — drop the distant pairs |
 | **unbounded DP** | none directly; a substitution is remove-then-add, two steps | **almost none** — already cheap |
 
-Under bounded DP the threshold policy cuts a raw marginal's sensitivity from √2
-to 0.4872 on `age`. Under unbounded DP the baseline is already 1 and the policy
-has nothing to give back.
+Concretely on `age`: the stock arm's release carries sensitivity **√2 under
+bounded DP but only 1 under unbounded**, while the policy arm's release carries
+**0.4872 and 0.4604** — almost the same either way. The transform's own cost
+barely moves between the definitions; what moves is the baseline it is measured
+against, and bounded DP's is 1.41× noisier.
 
 **A caveat that should be checked before it is relied on.** `policy.Graph`
 attaches a bottom edge to *every* cell in the unbounded construction, so that
@@ -312,21 +327,40 @@ does not apply to it. This is an argument about privacy definitions, not a
 measurement, and it should be checked against the Blowfish paper's formal
 statement.
 
-### 7.3 The gain is smaller than the textbook picture, for a structural reason
+### 7.3 The two definitions differ structurally, not just in their baseline
 
-The standard account is that a range query becomes a *difference of two running
-totals*, so the interior cancels and error stops growing with width.
+Section 7.2 explains the gap by the baseline: bounded DP's stock arm is 1.41×
+noisier, so the same transform looks better against it. That is real, but it is
+not the whole story — **the two constructions also read different numbers.**
 
-**This construction does not do that.** A pure path graph with one grounded
-endpoint does produce running totals — verified on `education.num`, where the
-edge weights come out as the suffix sums. But when every cell carries its own
-edge to `⊥`, each cell has a direct shortcut to ground and nothing accumulates
-along the axis. A width-`w` query then reads about `w+1` edges rather than 2,
-because every bottom edge inside the range contributes.
+The textbook account of why range queries improve is that a range becomes a
+*difference of two running totals*, so the interior cancels and error stops
+growing with width. Whether that happens depends on the bottom edges, and the
+two relations differ there by construction (`age`, θ=7, counting the non-zeros
+of `W_G = q·P_G`):
 
-So the observed gain is **not** "reads fewer numbers". It is "reads numbers that
-are individually quieter" — a weaker effect, and the reason the measured ratios
-stay far from flat-in-width.
+| range width | stock reads | **bounded** reads | **unbounded** reads |
+|---|---|---|---|
+| 2 | 2 | 14 | 15 |
+| 4 | 4 | 23 | 26 |
+| 8 | 8 | **29** | 36 |
+| 20 | 20 | **29** | 48 |
+| 40 | 40 | **29** | 68 |
+
+**Bounded saturates at 29 and stops growing** — the interior genuinely cancels,
+leaving only the boundary. It has **one** ground edge, so nothing inside the
+range touches it. **Unbounded keeps growing with width** because it has one
+bottom edge per cell — 73 of them — and every one inside the range contributes,
+reinstating exactly the per-cell reading the transform was meant to avoid.
+
+So the unbounded arm's gain cannot come from reading fewer numbers; it reads
+about as many as stock. It comes only from each number being quieter. The
+bounded arm gets both effects, which is a second reason — independent of the
+baseline — that it wins in 60 of 70 cells.
+
+That the mechanism works at all in the idealised case is checkable: a pure path
+graph with one grounded endpoint reproduces the suffix sums exactly, verified on
+`education.num`.
 
 ### 7.4 What these results do not support
 
