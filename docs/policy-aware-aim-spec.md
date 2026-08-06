@@ -31,15 +31,13 @@ costs on real data.
 **no worse than stock AIM on cell-level marginal accuracy** and **measurably
 better on range-shaped queries over ordinal attributes**.
 
-The first half is a no-regression check, the second is the payoff. A result
-that reports only the second is not a result.
+The first half is a no-regression check, the second is the payoff. Both must be
+reported.
 
-**The comparison is not symmetric, and the writeup must say so.** Blowfish at
-`rho` guarantees strictly less than DP at `rho`: the neighbour relation is
-narrower, so fewer pairs of databases must look alike. An equal-`rho` accuracy
-win is therefore *expected* and is not by itself interesting. What makes it a
-finding is that the effect has a *shape* — it reverses with query width, in the
-direction the policy predicts — rather than being a uniform lift.
+Whether an equal-`rho` comparison is symmetric depends on the baseline the
+policy is measured against, which is why the experiment runs both bounded and
+unbounded DP (Section 8). Readings are in `experiment-results.md`; what they
+mean is in `conclusion.md`.
 
 ## 2. Background: AIM in one page
 
@@ -66,7 +64,7 @@ the third, and fixes the round count instead of pacing adaptively.**
 ## 3. Data and preprocessing
 
 Source: `dataset/adult.csv`, 32,561 records. **Five attributes are used**, and
-preprocessing is deterministic and identical in both arms.
+preprocessing is deterministic and identical across all four arms.
 
 | attribute | meaning | domain | policy |
 |---|---|---|---|
@@ -151,22 +149,32 @@ on `(W, x)`. The transform is lossless; all error comes from the noise. The
 minimum-norm right inverse is `P_G⁻¹ = P_Gᵀ(P_G P_Gᵀ)⁻¹` (Design paper,
 Lemma 4.8).
 
-#### 5.1 The bottom vertex
+#### 5.1 The bottom vertex, and the two neighbour relations
 
-**Neighbours differ by adding or removing one record**, as in AIM. This is the
-Design paper's **Case I**: the graph carries an extra vertex `⊥` meaning "this
-record is absent", every cell is joined to it, and a bottom-edge contributes a
-column with a single `+1` rather than a `+1/−1` pair.
+The graph carries an extra vertex `⊥` meaning "this record is absent". A
+bottom-edge contributes a column with a single `+1` rather than a `+1/−1` pair,
+and `⊥` itself carries no row, so its level is pinned at zero.
 
-Two consequences, both of which simplify the implementation:
+**How many bottom edges exist is the whole difference between the two privacy
+definitions**, and it is the only thing `policy.Graph` branches on:
 
-- `P_G P_Gᵀ = L_graph + I` is positive definite, so nothing has to be grounded
-  and there is no per-component bookkeeping. `⊥` is simply vertex `k`, pinned
-  at level zero.
-- **`n` is not public** — it is exactly what differs between neighbours —
-  so `aim.py` measures it alongside the 1-way marginals rather than reading it.
-  Partition block totals are likewise not free; they cost budget like anything
-  else.
+| | bottom edges | `n` | raw-marginal sensitivity |
+|---|---|---|---|
+| **unbounded** | one per **cell** | measured, not public | 1 |
+| **bounded** | one per connected **component** | fixed and public | √2 |
+
+- **unbounded** is the Design paper's **Case I**: a record may appear or vanish
+  anywhere, so every cell needs its own edge to `⊥`. `n` is exactly what
+  differs between neighbours, so `aim.py` measures it. Every cell also gains a
+  direct shortcut to ground, which prevents levels accumulating along an
+  ordinal axis (Section 9.1).
+- **bounded** grounds one vertex per connected component — the fewest edges
+  that keep `L` invertible. Records move rather than appear, so the ground
+  edges are a mathematical device rather than a neighbour move, and `Δ₂` is
+  taken over the policy edges only.
+
+Either way `P_G P_Gᵀ = L_graph + D_ground` is positive definite, so nothing has
+to be grounded by hand and there is no per-component bookkeeping.
 
 **Stock AIM is the special case where the only edges are the bottom ones.**
 Then `L = I`, `Z = I`, `Δ₂ = 1`, and the SELECT penalty collapses to the cell
@@ -206,7 +214,7 @@ Stock AIM releases the marginal itself. Under a policy the released quantity is
 cells** — and the noise goes there, where it stays isotropic.
 
 ```
-if no policy:  release  x   + N(0, sigma * 1)
+if no policy:  release  x   + N(0, sigma * Delta_stock)   # 1 unbounded, sqrt(2) bounded
 else:          release  x_G + N(0, sigma * Delta_2(G))
 ```
 
@@ -283,7 +291,7 @@ costs `rho = 1/(2σ²)`; the exponential mechanism with parameter `ε` costs
 
 | step | share |
 |---|---|
-| warm start — every 1-way marginal, plus the record count `n` | 10%, split equally over the six releases |
+| warm start — every 1-way marginal, plus the record count `n` when it is not public | 10%, split equally over the releases: **6** under unbounded DP, **5** under bounded |
 | each round — SELECT | 45% / `rounds` |
 | each round — MEASURE | 45% / `rounds` |
 
@@ -318,15 +326,9 @@ Measured on `age`, varying θ (cell error is `Δ₂ × penalty`, from Section 6.
 | 7 | 556 | 0.4604 | 117.9 | **126.5** |
 | 15 | 1,048 | 0.3384 | 120.0 | 129.5 |
 
-Two things to read off it. **Even θ=1 already costs 1.35× on cells** — the
-cell-level price is the cost of admission for any non-trivial policy graph, not
-a tuning failure. And the total *plateaus*: past θ≈10 you buy more protection at
-almost no extra cell cost, because the falling Δ₂² has caught up with the
-rising edge count.
-
-So Δ₂ only calibrates noise per released number; it says nothing about how many
-numbers are released — `age` publishes 556 instead of 73. **Never compare
-policies by Δ₂ alone.**
+Δ₂ calibrates noise per released number; it says nothing about how many numbers
+are released — `age` publishes 556 instead of 73. Both factors enter the cell
+error column above.
 
 #### Reference values — 1-way marginals, as deployed
 
@@ -351,14 +353,14 @@ variance ratio explicitly.
 
 | | |
 |---|---|
-| **two arms** | stock standard DP, and the policy of Section 4. Identical preprocessing, workload, hyperparameters and seeds. *Otherwise the experiment compares configurations, not policies.* |
+| **four arms** | a 2x2: {bounded, unbounded} DP x {stock, policy}. Identical preprocessing, workload, hyperparameters and seeds throughout. *Varying one factor at a time is what separates the release from the privacy definition.* |
 | **sweep rho** | five zCDP budget points, geometric ×4. *The gain is largest where noise dominates, so one mid-range rho can badly under- or over-sell it.* |
 | **5 seeds** | per arm per budget. Both arms run the same seeds, so **every comparison is paired**. *Run-to-run variance in AIM is high enough that single-run numbers carry little information.* |
 | **workload** | all 3-way marginals — 10 over 5 attributes, uniform weights. Matches AIM's own evaluation. |
 | **candidates** | all 2-way marginals — 10 of them. |
 | **scored on** | the fitted joint, not sampled records. See Section 11. |
 
-2 arms × 5 budgets × 5 seeds = **50 runs**, about 43 minutes.
+4 arms × 5 budgets × 5 seeds = **100 runs**, about 79 minutes.
 
 #### 8.1 Budget points
 
@@ -385,13 +387,10 @@ Identical across both arms.
 
 ## 9. Metrics
 
-**AIM scores itself on cell-level workload error, and cell-level error is
-precisely what a threshold policy does not improve.** An evaluation built only
-on AIM's native metric will report that the policy does nothing. That is a
-property of the metric, not the algorithm: the policy moves error out of range
-and aggregate queries, which a cell-wise marginal metric never asks about.
-
-Two metrics are computed, and deliberately only two.
+Two metrics are computed, and deliberately only two: AIM's own cell-level
+metric, and a range-query benchmark. The second is included because AIM has no
+metric that is sensitive to ordinal structure, so a cell-wise measure alone
+cannot detect what a threshold policy changes either way.
 
 | metric | definition | source |
 |---|---|---|
@@ -402,9 +401,9 @@ Neither is invented for this project. AIM supplies the cell-level metric and
 has none that can express what a threshold policy changes, so the range
 benchmark comes from the Blowfish line the transform itself is taken from.
 
-The first is the **no-regression guardrail**; a ratio below 0.9× would indicate
-a bug in the sensitivity calculation, not a result. The second is where the
-gain is expected to live.
+The first is the no-regression guardrail; a ratio below 0.9× would indicate a
+bug in the sensitivity calculation rather than a result. The second is where a
+threshold policy is expected to act.
 
 #### 9.1 Why range queries should improve
 
@@ -438,18 +437,15 @@ there. So on a 16-value attribute:
 as many as stock does. It comes from each of those numbers being **quieter** —
 `Δ₂ = 0.46` on `age` against stock's 1.0 (Section 7).
 
-What follows is a direction, not a magnitude: the advantage should appear
-**only above some width**, since narrow queries pay the edge-count overhead
-without recovering it, while wide ones accumulate enough quieter numbers to
-come out ahead. θ sets the scale of that threshold but does not pin it.
+The design implication is a direction, not a magnitude: narrow queries pay the
+edge-count overhead without recovering it, while wide ones accumulate enough
+quieter numbers to offset it, so any advantage should appear only above some
+width. θ sets the scale of that threshold but does not pin it.
 
 **This reasoning is measurement-level only.** Utility is scored on the fitted
 joint, and the fit pools ten rounds of measurements across overlapping
-marginals in between. The measured gains do not follow from the argument above
-in any quantitative way — at the widest band `hours` reaches 0.33, below its
-own `Δ₂` of 0.44, which per-number noise alone cannot produce. Treat this
-section as motivation for *why* a width threshold should exist, not as a
-prediction of the ratios.
+marginals in between, so nothing here predicts the measured ratios. It states
+why a width threshold should exist at all.
 
 #### 9.2 The benchmark
 
@@ -506,13 +502,11 @@ run (Section 11).
 **Utility is scored on the fitted joint, not on sampled records.** Drawing
 32,561 records from the *true* joint already costs 3-way L1 0.142 — about half
 what the mechanism loses at the top of the budget range — so metrics on sampled
-records would spend much of their range measuring the sampler. The consequence
-is that these numbers are not directly comparable to published AIM figures, and
-that **the largest open question is untested**: the advantage is created at
-MEASURE, but a real deliverable is synthetic records produced by projection onto
-a model. Whether the range advantage survives that projection is not answered
-here. AIM's own ablations suggest a constrained fit compresses such differences
-by roughly 3×.
+records would spend much of their range measuring the sampler. Two consequences:
+the numbers are not directly comparable to published AIM figures, and the effect
+of the transform is observed at MEASURE rather than on synthetic records, which
+a real deliverable would be. AIM's own ablations suggest a constrained fit
+compresses such differences by roughly 3×.
 
 **The workload never reaches the mechanism.** `metrics.THREE_WAY` appears only
 in `evaluation/`; nothing in `mechanism/` imports it. AIM's score is
@@ -527,7 +521,7 @@ was adopted for range-query quality. This is the same root cause as the item
 above: the score is driven by cell-level error alone, so it cannot express the
 range-query benefit even in principle. Fixing it properly requires workloads of
 general linear queries — an open problem in the AIM paper. Section 9.3's
-diagnostic exists to detect it, and it does show up.
+diagnostic records per-run marginal counts so the effect can be checked.
 
 **The transform is applied where it cannot help.** `use_policy` builds a graph
 for *every* measured marginal, including `workclass`, `income` and
@@ -536,7 +530,7 @@ asked of them. Those three cost 1.52× in cell accuracy for no possible return.
 `mle.fit` already mixes transformed and untransformed measurements (a missing
 `graphs[S]` means a stock measurement), so restricting the transform to
 marginals touching an ordinal attribute needs only a change in `aim.run`. Not
-done here, and it inflates the measured cell-level cost.
+done here.
 
 **Width strata are absolute, not θ-normalised.** The bands are the same for all
 three ordinal attributes, but θ is 7, 8 and 2, so the predicted crossover falls

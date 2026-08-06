@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 742 368" width="742" height="368" role="img" aria-label="Range error ratio, bounded vs unbounded">
+<style>:root{--sf:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--mut:#898781;--gr:#e1e0d9;--ax:#c3c2b7;--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;}@media (prefers-color-scheme:dark){:root{--sf:#1a1a19;--ink:#ffffff;--ink2:#c3c2b7;--mut:#898781;--gr:#2c2c2a;--ax:#383835;--s1:#3987e5;--s2:#d95926;--s3:#199e70;}}.t{font:13px system-ui,sans-serif;fill:var(--ink2)}.ti{font:600 15px system-ui,sans-serif;fill:var(--ink)}.sub{font:12px system-ui,sans-serif;fill:var(--mut)}.lb{font:600 12px system-ui,sans-serif}</style>
+<rect width="742" height="368" fill="var(--sf)"/>
+<text x="26" y="28" class="ti">Range error ratio, policy / stock, within each privacy definition</text>
+<text x="26" y="48" class="sub">Range error ratio, policy / stock, within each privacy definition. rho = 0.16. Below the dashed line the transform wins.</text>
+<line x1="62.0" y1="302.0" x2="312.0" y2="302.0" stroke="var(--gr)" stroke-width="1"/>
+<text x="52" y="306.0" class="t" text-anchor="end">0.0</text>
+<line x1="62.0" y1="249.5" x2="312.0" y2="249.5" stroke="var(--gr)" stroke-width="1"/>
+<text x="52" y="253.5" class="t" text-anchor="end">0.6</text>
+<line x1="62.0" y1="197.0" x2="312.0" y2="197.0" stroke="var(--gr)" stroke-width="1"/>
+<text x="52" y="201.0" class="t" text-anchor="end">1.1</text>
+<line x1="62.0" y1="144.5" x2="312.0" y2="144.5" stroke="var(--gr)" stroke-width="1"/>
+<text x="52" y="148.5" class="t" text-anchor="end">1.7</text>
+<line x1="62.0" y1="92.0" x2="312.0" y2="92.0" stroke="var(--gr)" stroke-width="1"/>
+<text x="52" y="96.0" class="t" text-anchor="end">2.2</text>
+<line x1="62.0" y1="206.5" x2="312.0" y2="206.5" stroke="var(--ink2)" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="187.0" y="78" class="ti" text-anchor="middle">BOUNDED</text>
+<text x="62.0" y="322" class="t" text-anchor="middle">1-2</text>
+<text x="124.5" y="338" class="t" text-anchor="middle">3-5</text>
+<text x="187.0" y="322" class="t" text-anchor="middle">6-10</text>
+<text x="249.5" y="338" class="t" text-anchor="middle">11-20</text>
+<text x="312.0" y="322" class="t" text-anchor="middle">>20</text>
+<path d="M62.0 198.9 L124.5 208.0 L187.0 220.6 L249.5 244.4 L312.0 237.4" fill="none" stroke="var(--s1)" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="62.0" cy="198.9" r="3.4" fill="var(--s1)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="124.5" cy="208.0" r="3.4" fill="var(--s1)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="187.0" cy="220.6" r="3.4" fill="var(--s1)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="249.5" cy="244.4" r="3.4" fill="var(--s1)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="312.0" cy="237.4" r="3.4" fill="var(--s1)" stroke="var(--sf)" stroke-width="1.5"/>
+<path d="M62.0 142.1 L124.5 189.6 L187.0 219.7 L249.5 247.0 L312.0 270.0" fill="none" stroke="var(--s2)" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="62.0" cy="142.1" r="3.4" fill="var(--s2)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="124.5" cy="189.6" r="3.4" fill="var(--s2)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="187.0" cy="219.7" r="3.4" fill="var(--s2)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="249.5" cy="247.0" r="3.4" fill="var(--s2)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="312.0" cy="270.0" r="3.4" fill="var(--s2)" stroke="var(--sf)" stroke-width="1.5"/>
+<path d="M62.0 267.4 L124.5 280.1 L187.0 279.3 L249.5 269.5" fill="none" stroke="var(--s3)" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="62.0" cy="267.4" r="3.4" fill="var(--s3)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="124.5" cy="280.1" r="3.4" fill="var(--s3)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="187.0" cy="279.3" r="3.4" fill="var(--s3)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="249.5" cy="269.5" r="3.4" fill="var(--s3)" stroke="var(--sf)" stroke-width="1.5"/>
+<line x1="372.0" y1="302.0" x2="622.0" y2="302.0" stroke="var(--gr)" stroke-width="1"/>
+<line x1="372.0" y1="249.5" x2="622.0" y2="249.5" stroke="var(--gr)" stroke-width="1"/>
+<line x1="372.0" y1="197.0" x2="622.0" y2="197.0" stroke="var(--gr)" stroke-width="1"/>
+<line x1="372.0" y1="144.5" x2="622.0" y2="144.5" stroke="var(--gr)" stroke-width="1"/>
+<line x1="372.0" y1="92.0" x2="622.0" y2="92.0" stroke="var(--gr)" stroke-width="1"/>
+<line x1="372.0" y1="206.5" x2="622.0" y2="206.5" stroke="var(--ink2)" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="497.0" y="78" class="ti" text-anchor="middle">UNBOUNDED</text>
+<text x="372.0" y="322" class="t" text-anchor="middle">1-2</text>
+<text x="434.5" y="338" class="t" text-anchor="middle">3-5</text>
+<text x="497.0" y="322" class="t" text-anchor="middle">6-10</text>
+<text x="559.5" y="338" class="t" text-anchor="middle">11-20</text>
+<text x="622.0" y="322" class="t" text-anchor="middle">>20</text>
+<path d="M372.0 159.4 L434.5 196.0 L497.0 227.9 L559.5 242.6 L622.0 237.0" fill="none" stroke="var(--s1)" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="372.0" cy="159.4" r="3.4" fill="var(--s1)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="434.5" cy="196.0" r="3.4" fill="var(--s1)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="497.0" cy="227.9" r="3.4" fill="var(--s1)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="559.5" cy="242.6" r="3.4" fill="var(--s1)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="622.0" cy="237.0" r="3.4" fill="var(--s1)" stroke="var(--sf)" stroke-width="1.5"/>
+<path d="M372.0 171.4 L434.5 205.2 L497.0 228.9 L559.5 253.4 L622.0 270.2" fill="none" stroke="var(--s2)" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="372.0" cy="171.4" r="3.4" fill="var(--s2)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="434.5" cy="205.2" r="3.4" fill="var(--s2)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="497.0" cy="228.9" r="3.4" fill="var(--s2)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="559.5" cy="253.4" r="3.4" fill="var(--s2)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="622.0" cy="270.2" r="3.4" fill="var(--s2)" stroke="var(--sf)" stroke-width="1.5"/>
+<path d="M372.0 237.7 L434.5 247.7 L497.0 244.2 L559.5 234.1" fill="none" stroke="var(--s3)" stroke-width="2" stroke-linejoin="round"/>
+<circle cx="372.0" cy="237.7" r="3.4" fill="var(--s3)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="434.5" cy="247.7" r="3.4" fill="var(--s3)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="497.0" cy="244.2" r="3.4" fill="var(--s3)" stroke="var(--sf)" stroke-width="1.5"/>
+<circle cx="559.5" cy="234.1" r="3.4" fill="var(--s3)" stroke="var(--sf)" stroke-width="1.5"/>
+<text x="630" y="110" class="lb" fill="var(--s1)">age (t=7)</text>
+<text x="630" y="130" class="lb" fill="var(--s2)">hours (t=8)</text>
+<text x="630" y="150" class="lb" fill="var(--s3)">education (t=2)</text>
+<text x="26" y="358" class="sub">interval width (number of adjacent values summed)</text>
+</svg>

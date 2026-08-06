@@ -1,8 +1,11 @@
 """Regenerate the report figures from sweep.json into docs/figures/.
 
-Two metrics are plotted, and only two: AIM's own workload error, and range
-query error stratified by interval width.  Everything the report claims has to
-be visible in one of these.
+Two metrics, and only two: AIM's own workload error, and range query error
+stratified by interval width.  Four arms, a 2x2 over privacy definition
+(bounded / unbounded) and release (stock / policy).
+
+Colour encodes the privacy definition, dash encodes the arm, so the 2x2 reads
+off the legend directly.
 
     python experiment/evaluation/figures.py     # from the project root
 """
@@ -17,8 +20,14 @@ RHOS = sorted({r["rho"] for r in RES})
 BANDS = ["1-2", "3-5", "6-10", "11-20", ">20"]
 ORD = {"0": ("age", 7), "1": ("hours.per.week", 8), "2": ("education.num", 2)}
 
+# (bounded, policy) -> (label, colour, dashed)
+ARMS = [(True, False, "bounded stock", "s1", True),
+        (True, True, "bounded policy", "s1", False),
+        (False, False, "unbounded stock", "s2", True),
+        (False, True, "unbounded policy", "s2", False)]
+
 W, H = 680, 380
-L, RGT, TOP, BOT = 66, 118, 66, 52          # margins: plot box is what's left
+L, RGT, TOP, BOT = 66, 150, 66, 52          # margins: plot box is what's left
 
 CSS = (":root{--sf:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--mut:#898781;"
        "--gr:#e1e0d9;--ax:#c3c2b7;--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;}"
@@ -31,15 +40,13 @@ CSS = (":root{--sf:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--mut:#898781;"
        ".lb{font:600 12px system-ui,sans-serif}")
 
 
-def rows(rho, pol):
-    return [r for r in RES
-            if r["rho"] == rho and bool(r.get("policy", False)) == pol]
-
-
-def mean(rho, pol, path):
-    """Mean over seeds of one metric.  Missing bands are skipped."""
+def mean(rho, bounded, policy, path):
+    """Mean over seeds of one metric, for one cell of the 2x2."""
     vals = []
-    for r in rows(rho, pol):
+    for r in RES:
+        if (r["rho"] != rho or bool(r.get("bounded", False)) != bounded
+                or bool(r.get("policy", False)) != policy):
+            continue
         v = r
         for k in path:
             if k not in v:
@@ -51,7 +58,6 @@ def mean(rho, pol, path):
     return float(np.mean(vals)) if vals else float("nan")
 
 
-# ------------------------------------------------------------------ plotting
 class Plot:
     """A single line chart.  x positions are supplied already spaced."""
 
@@ -62,17 +68,14 @@ class Plot:
                   f'<rect width="{W}" height="{H}" fill="var(--sf)"/>',
                   f'<text x="26" y="24" class="ti">{title}</text>',
                   f'<text x="26" y="42" class="sub">{sub}</text>']
-        self.ymin, self.ymax = ymin, ymax
-        self.n = len(xticks)
-
-        for i in range(5):                          # horizontal gridlines
+        self.ymin, self.ymax, self.n = ymin, ymax, len(xticks)
+        for i in range(5):
             v = ymin + (ymax - ymin) * i / 4
             y = self.y(v)
             self.p.append(f'<line x1="{L}" y1="{y:.1f}" x2="{W-RGT}" y2="{y:.1f}"'
                           f' stroke="var(--gr)" stroke-width="1"/>')
             self.p.append(f'<text x="{L-10}" y="{y+4:.1f}" class="t"'
                           f' text-anchor="end">{yfmt.format(v)}</text>')
-
         base = self.y(ymin)
         self.p.append(f'<line x1="{L}" y1="{base:.1f}" x2="{W-RGT}" y2="{base:.1f}"'
                       f' stroke="var(--ax)" stroke-width="1"/>')
@@ -89,119 +92,94 @@ class Plot:
         return H - BOT - f * (H - BOT - TOP)
 
     def rule(self, v, label):
-        """A horizontal reference line, e.g. ratio = 1."""
         y = self.y(v)
         self.p.append(f'<line x1="{L}" y1="{y:.1f}" x2="{W-RGT}" y2="{y:.1f}"'
                       f' stroke="var(--ink2)" stroke-width="1"'
                       f' stroke-dasharray="4 3"/>')
         self.p.append(f'<text x="{W-RGT+8}" y="{y+4:.1f}" class="sub">{label}</text>')
 
-    def mark(self, i, label):
-        """A vertical annotation at tick i."""
-        self.p.append(f'<line x1="{self.x(i):.1f}" y1="{TOP-8}" x2="{self.x(i):.1f}"'
-                      f' y2="{self.y(self.ymin):.1f}" stroke="var(--ax)"'
-                      f' stroke-width="1" stroke-dasharray="2 4"/>')
-        self.p.append(f'<text x="{self.x(i):.1f}" y="{TOP-14}" class="sub"'
-                      f' text-anchor="middle">{label}</text>')
-
-    def line(self, ys, colour, label, dy=4):
+    def line(self, ys, colour, dashed=False):
         pts = [(self.x(i), self.y(v)) for i, v in enumerate(ys) if v == v]
         d = " L".join(f"{x:.1f} {y:.1f}" for x, y in pts)
+        dash = ' stroke-dasharray="5 4"' if dashed else ""
         self.p.append(f'<path d="M{d}" fill="none" stroke="var(--{colour})"'
-                      f' stroke-width="2" stroke-linejoin="round"'
-                      f' stroke-linecap="round"/>')
+                      f' stroke-width="2" stroke-linejoin="round"{dash}/>')
         for x, y in pts:
-            self.p.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.5"'
+            self.p.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.6"'
                           f' fill="var(--{colour})" stroke="var(--sf)"'
-                          f' stroke-width="2"/>')
-        lx, ly = pts[-1]
-        self.p.append(f'<text x="{lx+11:.1f}" y="{ly+dy:.1f}" class="lb"'
-                      f' fill="var(--{colour})">{label}</text>')
+                          f' stroke-width="1.5"/>')
+
+    def legend(self, entries):
+        """entries: list of (label, colour, dashed)."""
+        for n, (lab, col, dash) in enumerate(entries):
+            y = TOP + 10 + n * 22
+            da = ' stroke-dasharray="5 4"' if dash else ""
+            self.p.append(f'<line x1="{W-RGT+8}" y1="{y}" x2="{W-RGT+34}"'
+                          f' y2="{y}" stroke="var(--{col})" stroke-width="2"{da}/>')
+            self.p.append(f'<text x="{W-RGT+40}" y="{y+4}" class="lb"'
+                          f' fill="var(--{col})">{lab}</text>')
 
     def save(self, name):
         open(OUT + name, "w").write("\n".join(self.p) + "\n</svg>")
         print("wrote", OUT + name)
 
 
-# --------------------------------------------------------------- the figures
 def fig_workload():
-    """AIM's own metric across the budget sweep."""
-    s = [mean(r, False, ["wl_mean"]) for r in RHOS]
-    p = [mean(r, True, ["wl_mean"]) for r in RHOS]
-    g = Plot("Cell-level accuracy: the policy is worse at every budget",
+    """AIM's own metric across the budget sweep, all four arms."""
+    g = Plot("3-way workload error, all four arms",
              "3-way workload error, AIM's native metric. Mean over 5 seeds. "
              "Lower is better.",
              "zCDP budget rho (geometric, x4 per step)",
              [str(r) for r in RHOS], 0.80, 0.0, "{:.2f}")
-    g.line(s, "s1", "stock", dy=12)
-    g.line(p, "s2", "policy", dy=-4)
+    for bounded, pol, lab, col, dash in ARMS:
+        g.line([mean(r, bounded, pol, ["wl_mean"]) for r in RHOS], col, dash)
+    g.legend([(l, c, d) for _, _, l, c, d in ARMS])
     g.save("workload-error.svg")
 
 
 def fig_range(ax, rho, name):
-    """Absolute range error against interval width, both arms."""
+    """Absolute range error against interval width, all four arms."""
     attr, theta = ORD[ax]
-    s = [mean(rho, False, ["range", ax, b]) for b in BANDS]
-    p = [mean(rho, True, ["range", ax, b]) for b in BANDS]
-    top = max(max(s), max(p)) * 1.15
-    g = Plot(f"Range-query error on {attr}: the lines cross",
-             f"rho = {rho}, mean over 5 seeds. Lower is better. "
+    series = {(b, p): [mean(rho, b, p, ["range", ax, w]) for w in BANDS]
+              for b, p, _, _, _ in ARMS}
+    top = max(v for s in series.values() for v in s if v == v) * 1.12
+    g = Plot(f"Range error on {attr}, by interval width",
+             f"rho = {rho}, mean over 5 seeds, in records. Lower is better. "
              f"Policy threshold theta = {theta}.",
              "interval width (number of adjacent values summed)",
              BANDS, top)
-    g.line(s, "s1", "stock")
-    g.line(p, "s2", "policy")
+    for bounded, pol, lab, col, dash in ARMS:
+        g.line(series[(bounded, pol)], col, dash)
+    g.legend([(l, c, d) for _, _, l, c, d in ARMS])
     g.save(name)
 
 
-def fig_ratio(rho):
-    """policy / stock against width, all three ordinal attributes."""
-    g = Plot("The policy wins only above a width threshold",
-             f"Range error ratio, policy / stock, at rho = {rho}. "
-             "Below 1.0 the policy wins.",
-             "interval width (number of adjacent values summed)",
-             BANDS, 2.2, 0.0, "{:.1f}")
-    g.rule(1.0, "parity")
-    for ax, colour, dy in zip(["0", "1", "2"], ["s1", "s2", "s3"], [4, 4, -8]):
-        attr, theta = ORD[ax]
-        r = [mean(rho, True, ["range", ax, b]) / mean(rho, False, ["range", ax, b])
-             for b in BANDS]
-        g.line(r, colour, f"{attr.split('.')[0]} (t={theta})", dy=dy)
-    g.save("range-ratio.svg")
-
-
-def fig_ratio_panels():
-    """One panel per budget: ratio against width, all three ordinal attributes.
-
-    Small multiples rather than five separate files -- the point is to compare
-    across budgets, which needs them side by side and on a shared y-scale.
-    """
-    pw, ph = 250, 210                       # one panel's plot box
-    gap, top, left = 34, 76, 62
-    W2 = left + 5 * pw + 4 * gap + 96
-    H2 = top + ph + 62
+def fig_ratio_2x2(rho):
+    """policy / stock against width, one panel per privacy definition."""
+    pw, ph, gap, top, left = 250, 210, 60, 92, 62
+    W2, H2 = left + 2 * pw + gap + 120, top + ph + 66
     ymax = 2.2
 
-    def px(i, j):                           # panel i, tick j
-        x0 = left + i * (pw + gap)
-        return x0 + pw * j / (len(BANDS) - 1)
+    def px(i, j):
+        return left + i * (pw + gap) + pw * j / (len(BANDS) - 1)
 
     def py(v):
-        return top + ph - (v / ymax) * ph
+        return top + ph - (min(v, ymax) / ymax) * ph
 
     p = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W2} {H2}"'
          f' width="{W2}" height="{H2}" role="img"'
-         f' aria-label="Range error ratio by width, at each budget">',
+         f' aria-label="Range error ratio, bounded vs unbounded">',
          f"<style>{CSS}</style>",
          f'<rect width="{W2}" height="{H2}" fill="var(--sf)"/>',
-         f'<text x="26" y="28" class="ti">The width effect holds at every '
-         f'budget — but not by the same amount</text>',
-         f'<text x="26" y="48" class="sub">Range error ratio, policy / stock. '
-         f'Below the dashed line the policy wins. Shared scale.</text>']
+         f'<text x="26" y="28" class="ti">Range error ratio, policy / stock,'
+         f' within each privacy definition</text>',
+         f'<text x="26" y="48" class="sub">Range error ratio, policy / stock,'
+         f' within each privacy definition. rho = {rho}. Below the dashed line'
+         f' the transform wins.</text>']
 
-    for i, rho in enumerate(RHOS):
-        for g in range(5):                  # gridlines
-            v = ymax * g / 4
+    for i, (bounded, rel) in enumerate([(True, "BOUNDED"), (False, "UNBOUNDED")]):
+        for gl in range(5):
+            v = ymax * gl / 4
             p.append(f'<line x1="{px(i,0):.1f}" y1="{py(v):.1f}"'
                      f' x2="{px(i,4):.1f}" y2="{py(v):.1f}"'
                      f' stroke="var(--gr)" stroke-width="1"/>')
@@ -211,41 +189,116 @@ def fig_ratio_panels():
         p.append(f'<line x1="{px(i,0):.1f}" y1="{py(1.0):.1f}"'
                  f' x2="{px(i,4):.1f}" y2="{py(1.0):.1f}" stroke="var(--ink2)"'
                  f' stroke-width="1" stroke-dasharray="4 3"/>')
-        p.append(f'<text x="{(px(i,0)+px(i,4))/2:.1f}" y="{top-12}" class="lb"'
-                 f' fill="var(--ink)" text-anchor="middle">rho = {rho}</text>')
-        for j, b in enumerate(BANDS):       # x labels, alternating height
+        p.append(f'<text x="{(px(i,0)+px(i,4))/2:.1f}" y="{top-14}" class="ti"'
+                 f' text-anchor="middle">{rel}</text>')
+        for j, b in enumerate(BANDS):
             dy = 20 if j % 2 == 0 else 36
             p.append(f'<text x="{px(i,j):.1f}" y="{top+ph+dy}" class="t"'
                      f' text-anchor="middle">{b}</text>')
-
         for ax, colour in zip(["0", "1", "2"], ["s1", "s2", "s3"]):
             pts = []
             for j, b in enumerate(BANDS):
-                s = mean(rho, False, ["range", ax, b])
-                q = mean(rho, True, ["range", ax, b])
+                s = mean(rho, bounded, False, ["range", ax, b])
+                q = mean(rho, bounded, True, ["range", ax, b])
                 if s == s and q == q:
-                    pts.append((px(i, j), py(min(q / s, ymax))))
+                    pts.append((px(i, j), py(q / s)))
             d = " L".join(f"{x:.1f} {y:.1f}" for x, y in pts)
             p.append(f'<path d="M{d}" fill="none" stroke="var(--{colour})"'
                      f' stroke-width="2" stroke-linejoin="round"/>')
             for x, y in pts:
-                p.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.2"'
+                p.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.4"'
                          f' fill="var(--{colour})" stroke="var(--sf)"'
                          f' stroke-width="1.5"/>')
 
     for n, (ax, colour) in enumerate(zip(["0", "1", "2"], ["s1", "s2", "s3"])):
         attr, theta = ORD[ax]
-        p.append(f'<text x="{W2-92}" y="{top+18+n*20}" class="lb"'
+        p.append(f'<text x="{W2-112}" y="{top+18+n*20}" class="lb"'
                  f' fill="var(--{colour})">{attr.split(".")[0]} (t={theta})</text>')
     p.append(f'<text x="26" y="{H2-10}" class="sub">interval width '
              f'(number of adjacent values summed)</text>')
-    open(OUT + "range-ratio-panels.svg", "w").write("\n".join(p) + "\n</svg>")
-    print("wrote", OUT + "range-ratio-panels.svg")
+    open(OUT + "range-ratio-2x2.svg", "w").write("\n".join(p) + "\n</svg>")
+    print("wrote", OUT + "range-ratio-2x2.svg")
+
+
+def fig_heatmap():
+    """The whole grid at once: ratio per attribute x relation x budget x width.
+
+    Colour carries the pattern -- blue where the transform wins, orange where it
+    loses, intensity by how far from parity.  The number stays in the cell so
+    the figure is still readable as data.
+    """
+    cw, ch = 56, 32                         # one cell
+    pw, phh = cw * len(BANDS), ch * len(RHOS)
+    left, top, colgap, rowgap = 84, 74, 46, 62
+    W2 = left + 2 * pw + colgap + 96
+    H2 = top + 3 * (phh + rowgap) + 10
+
+    def colour(r):
+        """(css var, opacity) -- blue below parity, orange above."""
+        t = np.log2(r)
+        o = min(abs(t) / 1.0, 1.0) * 0.78 + 0.06
+        return ("s1", o) if t < 0 else ("s2", o)
+
+    p = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W2} {H2}"'
+         f' width="{W2}" height="{H2}" role="img"'
+         f' aria-label="Range error ratio grid">',
+         f"<style>{CSS}</style>",
+         f'<rect width="{W2}" height="{H2}" fill="var(--sf)"/>',
+         f'<text x="26" y="28" class="ti">Range error ratio, policy / stock —'
+         f' every budget and width band</text>',
+         f'<text x="26" y="48" class="sub">Blue: the transform has lower error'
+         f' than stock under the same privacy definition. Orange: higher.'
+         f' Deeper colour is further from parity.</text>']
+
+    for row, (ax, (attr, theta)) in enumerate(ORD.items()):
+        y0 = top + row * (phh + rowgap)
+        for col, (bounded, rel) in enumerate([(True, "BOUNDED"),
+                                              (False, "UNBOUNDED")]):
+            x0 = left + col * (pw + colgap)
+            p.append(f'<text x="{x0}" y="{y0-10}" class="lb"'
+                     f' fill="var(--ink)">{attr} (t={theta}) — {rel}</text>')
+            for i, rho in enumerate(RHOS):
+                if col == 0:
+                    p.append(f'<text x="{left-10}" y="{y0+i*ch+ch/2+4:.0f}"'
+                             f' class="t" text-anchor="end">{rho}</text>')
+                for j, b in enumerate(BANDS):
+                    s = mean(rho, bounded, False, ["range", ax, b])
+                    q = mean(rho, bounded, True, ["range", ax, b])
+                    x, y = x0 + j * cw, y0 + i * ch
+                    if s != s or q != q:
+                        p.append(f'<rect x="{x}" y="{y}" width="{cw}"'
+                                 f' height="{ch}" fill="none"'
+                                 f' stroke="var(--gr)" stroke-width="1"/>')
+                        continue
+                    c, o = colour(q / s)
+                    p.append(f'<rect x="{x}" y="{y}" width="{cw}" height="{ch}"'
+                             f' fill="var(--{c})" fill-opacity="{o:.2f}"'
+                             f' stroke="var(--sf)" stroke-width="1.5"/>')
+                    p.append(f'<text x="{x+cw/2:.0f}" y="{y+ch/2+4:.0f}"'
+                             f' class="t" fill="var(--ink)"'
+                             f' text-anchor="middle">{q/s:.2f}</text>')
+            for j, b in enumerate(BANDS):
+                p.append(f'<text x="{x0+j*cw+cw/2:.0f}" y="{y0+phh+16}"'
+                         f' class="t" text-anchor="middle">{b}</text>')
+
+    lx = left + 2 * pw + colgap + 16
+    p.append(f'<text x="{lx}" y="{top+2}" class="lb" fill="var(--ink)">ratio</text>')
+    for n, v in enumerate([0.4, 0.6, 0.8, 1.0, 1.3, 1.7, 2.1]):
+        c, o = colour(v)
+        yy = top + 14 + n * 22
+        p.append(f'<rect x="{lx}" y="{yy}" width="22" height="16"'
+                 f' fill="var(--{c})" fill-opacity="{o:.2f}"'
+                 f' stroke="var(--gr)" stroke-width="1"/>')
+        p.append(f'<text x="{lx+28}" y="{yy+12}" class="t">{v:.1f}</text>')
+    p.append(f'<text x="26" y="{H2-8}" class="sub">rows: zCDP budget rho'
+             f'  |  columns: interval width band</text>')
+    open(OUT + "range-ratio-grid.svg", "w").write("\n".join(p) + "\n</svg>")
+    print("wrote", OUT + "range-ratio-grid.svg")
 
 
 if __name__ == "__main__":
     fig_workload()
     fig_range("0", 0.16, "range-age.svg")
     fig_range("1", 0.16, "range-hours.svg")
-    fig_ratio(0.16)
-    fig_ratio_panels()
+    fig_ratio_2x2(0.16)
+    fig_heatmap()

@@ -1,7 +1,7 @@
 # Policy-Aware AIM on Adult
 
 What happens to a state-of-the-art DP synthetic data mechanism when you swap
-its privacy definition for a weaker, more specific one?
+its privacy definition for a more specific one?
 
 This runs [AIM](docs/papers) — an adaptive select–measure–fit mechanism for
 differentially private synthetic data — under a **Blowfish policy** instead of
@@ -15,67 +15,51 @@ Blowfish policy says which pairs actually need to: it is a graph per attribute,
 where an edge between two values is a promise that those values stay
 indistinguishable. Put a **threshold graph** on `age` — every pair within 7
 years joined — and you have declined to hide whether someone is 30 or 34, while
-still hiding whether they are 30 or 60. The payoff should be that queries
-spanning many ages get cheaper, because the mechanism no longer has to protect
-distinctions inside that band.
+still hiding whether they are 30 or 60. The hypothesis under test is that
+queries spanning many ages get cheaper, because the mechanism no longer has to
+protect distinctions inside that band.
 
 The mechanism releases weights on the policy graph's **edges** rather than
 counts on its **cells** (`x_G = P_G⁻¹x`, from the Design paper). Noise goes
 there, where it stays isotropic, and is never reconstructed back.
 
-## How it is measured
+## What is measured
 
 Two metrics, both taken from the literature rather than invented here:
 
 - **Workload error** — the mean L1 error over all ten 3-way marginals,
-  normalised by `n`. This is AIM's own metric, and it measures *cell-level*
-  accuracy. It is the guardrail: the policy is expected to cost something here.
+  normalised by `n`. AIM's own metric; it measures *cell-level* accuracy.
 - **Range error** — the error of every interval query on an ordinal attribute
   ("how many people are aged 30–45?"), in records, grouped by the interval's
-  **width**: how many adjacent values it spans. This is where the gain is
-  expected to live, and it is only meaningful *per width band* — the policy is
-  worse on narrow intervals and better on wide ones, so a pooled average would
-  cancel the effect out.
+  **width**: how many adjacent values it spans. Reported per width band, never
+  pooled.
 
-## What we found
+## What is run
 
-50 runs — 5 budgets × 2 arms × 5 seeds, with both arms on identical seeds, so
+A 2×2 over the two things that vary — the privacy definition, and what the
+mechanism releases:
+
+| | stock — release the marginal | policy — release `x_G` |
+|---|---|---|
+| **bounded DP** | `bounded-stock` | `bounded-policy` |
+| **unbounded DP** | `unbounded-stock` | `unbounded-policy` |
+
+**100 runs** — 5 zCDP budgets × 4 arms × 5 seeds, all arms on the same seeds so
 every comparison is paired.
 
-**The policy is uniformly worse per cell and conditionally better per range.**
-The sign of the effect flips with query width, which is exactly the shape a
-threshold policy predicts:
+![Range error ratio, policy / stock, within each privacy definition](docs/figures/range-ratio-2x2.svg)
 
-![Range error ratio by interval width](docs/figures/range-ratio.svg)
+*Range error ratio, policy ÷ stock, within each privacy definition, at
+`rho = 0.16`. Below the dashed line the policy arm has the lower error.*
 
-*Range error, policy ÷ stock, against interval width. Below 1.0 the policy
-wins. All three lines fall left to right: the wider the query, the better the
-policy does.*
-
-| | result |
-|---|---|
-| Cell accuracy (AIM's own metric) | **1.02–1.19× worse**, at every budget — the policy loses all 25 paired runs |
-| Narrow ranges (width 1–2 values) | **1.4–2.0× worse** — loses all 50 paired comparisons |
-| Wide ranges (width >20 values) | **1.2–1.7× better** on `age` at every budget; up to **3.0×** on `hours.per.week` |
-
-**Read this against the caveat, not around it:** Blowfish at `rho` guarantees
-strictly less than DP at `rho`, so an equal-budget accuracy win is *expected*.
-What makes the result informative is that the gain has a shape — it reverses
-with query width — rather than being a uniform lift.
-
-**The cell-level cost, though, is not the relaxation's doing.** Run the same
-machinery with *full protection* on every attribute — a guarantee identical to
-standard DP, nothing given away — and it still loses 1.09×, 0 of 5 paired
-seeds. The cost comes from choosing to release **edge weights instead of cell
-counts**, and any policy would pay it.
-
-Full numbers, paired statistics and limitations: **[experiment-results.md](docs/experiment-results.md)**.
+Figures, tables, the full budget × width grid, what follows from them, and the
+next steps are all in **[experiment-results.md](docs/experiment-results.md)**.
 
 ## Docs
 
 | | |
 |---|---|
-| **[experiment-results.md](docs/experiment-results.md)** | What was measured, what it showed, and what these two metrics do and do not license |
+| **[experiment-results.md](docs/experiment-results.md)** | Readings, figures, the full grid, conclusions and next steps |
 | **[policy-aware-aim-spec.md](docs/policy-aware-aim-spec.md)** | The specification: data, policy, the `P_G` transform, sensitivity, protocol, metrics, reference values |
 | **[architecture.md](docs/architecture.md)** | Module layout, the privacy boundary, and the mechanics of the transform |
 | **[docs/papers/](docs/papers)** | The six source papers |
@@ -87,7 +71,7 @@ Needs `numpy`, and nothing else.
 ```bash
 export PYTHONPATH=experiment/mechanism:experiment/evaluation
 
-python experiment/run.py                    # the sweep -- 50 runs, ~43 min
+python experiment/run.py                    # the sweep -- 100 runs, ~79 min
 python experiment/evaluation/analyze.py     # tables
 python experiment/evaluation/figures.py     # figures -> docs/figures/
 ```

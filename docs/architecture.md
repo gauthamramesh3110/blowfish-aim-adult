@@ -1,10 +1,13 @@
 # Code architecture
 
-A minimal AIM on the Adult census data, in two arms: standard differential
-privacy, and a Blowfish policy. Eight modules, 935 lines, `numpy` and nothing
-else.
+A minimal AIM on the Adult census data, in four arms: a 2x2 over the privacy
+definition (bounded / unbounded DP) and what is released (the marginal, or
+weights on a Blowfish policy graph). Eight modules, 1,083 lines, `numpy` and
+nothing else.
 
-Neighbours differ by adding or removing one record, as in AIM.
+Two neighbour relations are supported: **unbounded** (a record is added or
+removed, as in AIM) and **bounded** (`n` is fixed and public, and a record
+moves between values). `aim.run(..., bounded=)` selects between them.
 
 ---
 
@@ -15,7 +18,7 @@ README.md                  the gist and the headline result
 dataset/adult.csv          32,561 records, the only input
 docs/
   architecture.md          this file
-  experiment-results.md    what was measured and what it showed
+  experiment-results.md    readings, conclusions and next steps
   policy-aware-aim-spec.md the specification
   figures/                 SVGs, written by figures.py
   papers/                  the source papers
@@ -59,7 +62,7 @@ Arrows mean *imports*.
 
 ```mermaid
 graph TD
-    run["run.py<br/>the sweep, both arms"]
+    run["run.py<br/>the sweep, all four arms"]
 
     subgraph mechanism["mechanism/ -- spends privacy budget"]
         aim["aim.py<br/>SELECT / MEASURE / fit loop"]
@@ -95,13 +98,13 @@ mechanism produced.
 | side | module | lines | responsibility |
 |---|---|---|---|
 | mechanism | `data.py` | 81 | Load Adult into a dense joint histogram; marginalise, expand, sample |
-| mechanism | `policy.py` | 221 | Blowfish policy graphs: build, transform, sensitivity |
+| mechanism | `policy.py` | 269 | Blowfish policy graphs: build, transform, sensitivity |
 | mechanism | `mle.py` | 49 | Fit a joint to a set of noisy measurements by weighted least squares |
-| mechanism | `aim.py` | 170 | The AIM loop: warm start, then SELECT / MEASURE / refit |
+| mechanism | `aim.py` | 187 | The AIM loop: warm start, then SELECT / MEASURE / refit |
 | evaluation | `metrics.py` | 69 | Two metrics: 3-way workload error, and range error by interval width |
-| evaluation | `analyze.py` | 103 | Turn `sweep.json` into tables, stock vs policy |
-| evaluation | `figures.py` | 177 | Turn `sweep.json` into the report's SVGs |
-| harness | `run.py` | 65 | Sweep over budgets, arms and seeds; writes `sweep.json` |
+| evaluation | `analyze.py` | 122 | Turn `sweep.json` into tables, the 2x2 side by side |
+| evaluation | `figures.py` | 227 | Turn `sweep.json` into the report's SVGs |
+| harness | `run.py` | 79 | Sweep over budgets, arms and seeds; writes `sweep.json` |
 
 ---
 
@@ -130,7 +133,7 @@ error. Past roughly 20M cells this design would need Private-PGM proper.
 
 ```mermaid
 flowchart TD
-    A["uniform joint<br/>1,976,256 cells"] --> B["warm start:<br/>5 one-way marginals + record count n<br/>10% of budget"]
+    A["uniform joint<br/>1,976,256 cells"] --> B["warm start:<br/>5 one-way marginals<br/>(+ record count n if unbounded)<br/>10% of budget"]
     B --> C["mle.fit, 30 iterations"]
     C --> D{"rounds left?"}
     D -->|yes| E["SELECT<br/>exponential mechanism over<br/>10 candidate 2-way marginals"]
@@ -147,27 +150,31 @@ Tracked in zCDP throughout, because it composes by addition.
 
 | step | share | mechanism | cost |
 |---|---|---|---|
-| warm start | 10%, split **6** ways | Gaussian, `sigma_warm` | `rho = 1/(2 sigma^2)` each |
+| warm start | 10%, split **6** ways unbounded / **5** bounded | Gaussian, `sigma_warm` | `rho = 1/(2 sigma^2)` each |
 | SELECT, per round | 45% / rounds | exponential, `eps` | `rho = eps^2/8` |
 | MEASURE, per round | 45% / rounds | Gaussian, `sigma_meas` | `rho = 1/(2 sigma^2)` |
 
-The warm start covers the 5 one-way marginals **and the record count `n`**.
-`n` is exactly what differs between neighbours, so it is not public and has to
-be measured — sensitivity 1, since no other edge changes the total. `mle.fit`
-receives that noisy `n_hat`, never `true.sum()`.
+The warm start covers the 5 one-way marginals, **and the record count `n` under
+unbounded DP** — there `n` is exactly what differs between neighbours, so it is
+not public and has to be measured (sensitivity 1, since no other edge changes
+the total), and `mle.fit` receives the noisy `n_hat` rather than `true.sum()`.
+Under bounded DP `n` is public, the warm start splits 5 ways instead of 6, and
+the true total is used.
 
 Only these three touch the data. `mle.fit` and everything downstream are
-post-processing, so they are free. Both arms spend exactly the same `rho`;
-what differs is what it buys.
+post-processing, so they are free. All four arms spend exactly the same `rho`;
+what differs is the neighbour relation and what is released.
 
 ### MEASURE
 
 ```python
-return x + rng.normal(0, sigma * 1.0, size=x.shape)
+return x + rng.normal(0, sigma * sensitivity(bounded), size=x.shape)
 ```
 
-`1` is the L2 sensitivity of a marginal: adding or removing one record moves
-exactly one cell by one, so `x` changes by `e_u`, whose norm is 1.
+`aim.sensitivity` is the L2 sensitivity of a raw marginal, and it depends on the
+neighbour relation: **1** unbounded, since adding or removing one record moves
+`x` by `e_u`; **sqrt(2)** bounded, since `n` is fixed so a record moves and `x`
+changes by `e_u - e_v`.
 
 The key property is that **the whole marginal costs the same as a single cell**
 — every record contributes a count of one to exactly one cell, so the noise
@@ -187,7 +194,8 @@ is what measuring it would cost anyway, so large marginals are discounted where
 noise would swamp the gain.
 
 `aim.cost` supplies `(Delta, penalty)` for whichever arm is running —
-`(1, cell count)` for stock, `(G.delta, G.penalty)` under a policy. Stock is
+`(sensitivity(bounded), cell count)` for stock, `(G.delta, G.penalty)` under a
+policy. Stock is
 the special case where the only edges are the bottom ones, so one formula
 serves both.
 
@@ -362,9 +370,9 @@ computation.
 Edge counts include one bottom-edge per cell, so they exceed the per-attribute
 policy graph's own edge count by exactly `k`.
 
-**`Delta_2` is not a quality measure.** It falls under a policy, but the number
-of released values rises — age publishes 556 numbers instead of 73. Read the
-ratio per metric, not an overall verdict.
+`Delta_2` calibrates noise per released number. It falls under a policy while
+the number of released values rises — age publishes 556 numbers instead of 73 —
+so both factors enter the error of any reconstruction.
 
 ## Key invariants
 
@@ -430,9 +438,7 @@ rho=0.04    policy=False   55.8s  age-1way L1=0.0323  3way L1=0.2904  distinct=5
 rho=0.04    policy=True    54.6s  age-1way L1=0.0543  3way L1=0.2948  distinct=5
 ```
 
-These are the regression check — they must reproduce exactly. Note the policy
-arm sits clearly *behind* stock on this cell-level metric; the payoff is on
-range and ordinal queries, not here.
+These are the regression check — they must reproduce exactly.
 
 ### 5. The sweep — about an hour
 
@@ -440,7 +446,7 @@ range and ordinal queries, not here.
 .venv/bin/python experiment/run.py
 ```
 
-5 budgets x 2 arms x 5 seeds = 50 runs. Writes `experiment/results/sweep.json`
+5 budgets x 4 arms x 5 seeds = 100 runs. Writes `experiment/results/sweep.json`
 after each budget block, so partial results survive an interrupt. Redirect
 stdout if you background it:
 

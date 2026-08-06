@@ -102,31 +102,69 @@ def product_edges(S):
     return np.concatenate(U), np.concatenate(V)
 
 
+def components(k, u, v):
+    """Connected components of the policy graph, as a root label per vertex.
+
+    Union-find, so no scipy.  Needed only to pick the bounded grounding points.
+    """
+    parent = np.arange(k)
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for a, b in zip(u.tolist(), v.tolist()):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+    return np.array([find(i) for i in range(k)])
+
+
 class Graph:
     """P_G for one marginal: edge list, inverse Laplacian, sensitivity.
 
     Vertex `k` is `bottom`.  It carries no row of P_G and its level is pinned
-    at zero, so a bottom-edge column reads as a bare +1 -- exactly the Case I
-    construction, and the reason no grounding is needed.
+    at zero, so a bottom-edge column reads as a bare +1.
+
+    The neighbour relation is set entirely by how many bottom edges exist:
+
+      unbounded  one per cell.  Every add/remove is a single step, so the
+                 guarantee contains standard unbounded DP.  Every cell also
+                 gets a direct shortcut to ground, which is what stops levels
+                 accumulating along an ordinal axis.
+      bounded    one per connected component -- the fewest that keep L
+                 invertible.  n is public, records move rather than appear,
+                 and with no per-cell shortcut the levels do accumulate.
     """
 
-    def __init__(self, S):
+    def __init__(self, S, bounded=False):
         self.S = S
+        self.bounded = bounded
         self.shape = [SIZES[i] for i in S]
         self.k = k = int(np.prod(self.shape))
         self.bottom = k                 # one extra vertex, pinned at level 0
 
-        # the policy edges, plus one bottom-edge per cell (the record may be
-        # present or absent).  `to_bottom` splits the two kinds thereafter.
+        # the policy edges, plus the bottom edges.  `to_bottom` splits the two
+        # kinds thereafter.
         gu, gv = product_edges(S)
-        self.U = np.concatenate([gu, np.arange(k)])
-        self.V = np.concatenate([gv, np.full(k, self.bottom)])
+        if bounded:
+            # one ground per component: enough to make L positive definite,
+            # and no more.  The component totals are what is held fixed.
+            roots = components(k, gu, gv)
+            ground = np.unique(roots, return_index=True)[1]
+        else:
+            ground = np.arange(k)
+        self.U = np.concatenate([gu, ground])
+        self.V = np.concatenate([gv, np.full(len(ground), self.bottom)])
         self.to_bottom = self.V == self.bottom
         u, v = self.U[~self.to_bottom], self.V[~self.to_bottom]
 
         # L = P_G P_G^T.  A bottom-edge column is a bare +1, so it lands on the
         # diagonal only -- which is exactly why L = L_graph + I is invertible.
-        deg = np.bincount(self.U, minlength=k) + np.bincount(v, minlength=k)
+        deg = (np.bincount(self.U, minlength=k)[:k]
+               + np.bincount(v, minlength=k)[:k])
         L = np.zeros((k, k))
         L[np.arange(k), np.arange(k)] = deg
         np.add.at(L, (u, v), -1.0)
@@ -139,7 +177,15 @@ class Graph:
         r[~self.to_bottom] = self.Z[u, u] + self.Z[v, v] - 2 * self.Z[u, v]
         b = self.U[self.to_bottom]      # bottom reads as zero, leaving Z[u,u]
         r[self.to_bottom] = self.Z[b, b]
-        self.delta = float(np.sqrt(r.max()))
+
+        # The max runs over the *neighbour moves*, which is not the same as the
+        # edge list.  Unbounded: a record may appear or vanish, so bottom edges
+        # are genuine moves and count.  Bounded: n is public, so the bottom
+        # edges are only there to ground L -- a mathematical device, not
+        # something an adversary can do -- and including them would force
+        # Delta_2 = 1, since a lone ground edge is a bridge.
+        moves = ~self.to_bottom if bounded else slice(None)
+        self.delta = float(np.sqrt(r[moves].max()))
 
         # SELECT penalty, spec 6.2: sum_i sqrt(inv(A^T A)[i,i]) with A = P_G^-1.
         # A^T A = Z P_G P_G^T Z = Z, so inv(A^T A) = L and the diagonal is the
@@ -149,7 +195,8 @@ class Graph:
 
     def __repr__(self):
         return (f"Graph{self.S} cells={self.k} edges={len(self.U)} "
-                f"delta={self.delta:.4f}")
+                f"delta={self.delta:.4f} "
+                f"{'bounded' if self.bounded else 'unbounded'}")
 
     def levels(self, x):
         """Z @ x, with `bottom` appended at zero so z[U]-z[V] just works."""
@@ -172,15 +219,16 @@ class Graph:
 _CACHE = {}
 
 
-def graph(S):
+def graph(S, bounded=False):
     """Policy graph for marginal S, built once and reused.
 
     Data independent -- it depends only on the policy, so building it costs no
     privacy budget and it can be cached freely.
     """
-    if S not in _CACHE:
-        _CACHE[S] = Graph(S)
-    return _CACHE[S]
+    key = (S, bounded)
+    if key not in _CACHE:
+        _CACHE[key] = Graph(S, bounded)
+    return _CACHE[key]
 
 
 if __name__ == "__main__":

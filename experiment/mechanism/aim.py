@@ -6,9 +6,18 @@
                refit the model on everything measured so far
   finally      a longer fit, then sample synthetic records
 
-Neighbours differ by adding or removing one record, as in AIM.  So a marginal
-has L2 sensitivity 1, and the record count n is not public -- it is measured
-alongside the 1-way marginals.
+Two neighbour relations are supported, selected by `bounded`:
+
+  unbounded  a record is added or removed, as in AIM.  A marginal has L2
+             sensitivity 1, and n is not public -- it is measured alongside
+             the 1-way marginals.
+  bounded    n is fixed and public, and a record moves between values.  A
+             marginal has L2 sensitivity sqrt(2), and nothing is spent on n.
+
+The relation matters because it decides what a Blowfish policy can relax.
+Against bounded DP, which protects every substitution in one step, a threshold
+policy removes most of those obligations.  Against unbounded DP it removes
+nothing -- see docs/experiment-results.md.
 
 Budget is tracked in zCDP throughout: the Gaussian mechanism with noise scale
 sigma costs rho = 1/(2 sigma^2), and the exponential mechanism with parameter
@@ -33,35 +42,41 @@ NDIM = len(SIZES)
 CANDIDATES = [(i, j) for i in range(NDIM) for j in range(i + 1, NDIM)]
 ONE_WAY = [(i,) for i in range(NDIM)]
 
-SENSITIVITY = 1.0       # one record added or removed, so x moves by e_u
+def sensitivity(bounded):
+    """L2 sensitivity of releasing a raw marginal.
+
+    unbounded  a record is added or removed, so x moves by e_u        -> 1
+    bounded    n is fixed, so a record moves: x moves by e_u - e_v    -> sqrt(2)
+    """
+    return np.sqrt(2.0) if bounded else 1.0
 
 
 def cells(S):
     return int(np.prod([SIZES[i] for i in S]))
 
 
-def score_sensitivity(graphs):
+def score_sensitivity(graphs, bounded):
     """L1 sensitivity of SELECT's quality score.
 
     Adding or removing a record moves one cell by 1, so one L1 term moves by 1.
-    A policy also admits substitution along a graph edge, which moves two cells
-    by 1 each -- hence 2.
+    Any substitution -- whether bounded DP's, or a policy's move along a graph
+    edge -- moves two cells by 1 each, hence 2.
     """
-    return 2.0 if graphs else 1.0
+    return 2.0 if (graphs or bounded) else 1.0
 
 
-def cost(S, G):
+def cost(S, G, bounded):
     """Noise multiplier, and expected L1 reconstruction error at unit sigma.
 
-    Stock AIM releases the marginal itself: sensitivity 1, and one noisy cell
-    per cell.  Under a policy it releases x_G instead, so the multiplier is the
-    policy sensitivity and the error term is spec 6.2's generalised penalty.
-    Stock is the special case where the only edges are the bottom ones.
+    Stock AIM releases the marginal itself: one noisy cell per cell.  Under a
+    policy it releases x_G instead, so the multiplier is the policy sensitivity
+    and the error term is spec 6.2's generalised penalty.
     """
-    return Cost(SENSITIVITY, cells(S)) if G is None else Cost(G.delta, G.penalty)
+    return (Cost(sensitivity(bounded), cells(S)) if G is None
+            else Cost(G.delta, G.penalty))
 
 
-def measure(x, sigma, rng, G=None):
+def measure(x, sigma, rng, G=None, bounded=False):
     """Noisy measurement of a marginal.
 
     Every record contributes a count of one to exactly one cell, so the whole
@@ -73,12 +88,12 @@ def measure(x, sigma, rng, G=None):
     there, where it stays isotropic.  It is never reconstructed back to cells.
     """
     if G is None:
-        return x + rng.normal(0, sigma * SENSITIVITY, size=x.shape)
+        return x + rng.normal(0, sigma * sensitivity(bounded), size=x.shape)
     xg = G.transform(x)
     return xg + rng.normal(0, sigma * G.delta, size=xg.shape)
 
 
-def select(true, model, sigma, eps, rng, graphs=None):
+def select(true, model, sigma, eps, rng, graphs=None, bounded=False):
     """Exponential mechanism over the candidate marginals.
 
     AIM's quality score, equation (1):
@@ -93,42 +108,44 @@ def select(true, model, sigma, eps, rng, graphs=None):
     """
     q = []
     for S in CANDIDATES:
-        c = cost(S, graphs.get(S) if graphs else None)
+        c = cost(S, graphs.get(S) if graphs else None, bounded)
         q.append(np.abs(marginal(true, S) - marginal(model, S)).sum()
                  - np.sqrt(2.0 / np.pi) * sigma * c.delta * c.penalty)
     q = np.array(q)
-    p = np.exp(eps * (q - q.max()) / (2 * score_sensitivity(graphs)))
+    p = np.exp(eps * (q - q.max()) / (2 * score_sensitivity(graphs, bounded)))
     return CANDIDATES[rng.choice(len(CANDIDATES), p=p / p.sum())]
 
 
-def run(true, rho, seed, rounds=10, iters=30, use_policy=False):
+def run(true, rho, seed, rounds=10, iters=30, use_policy=False, bounded=False):
     """One AIM run.  Returns the fitted joint, and the marginals it selected."""
     rng = np.random.default_rng(seed)
     n = true.sum()
 
     # The graphs cost no budget: they depend only on the policy, never the
     # data.  Cached, so a sweep in one process pays the build cost once.
-    graphs = ({S: policy.graph(S) for S in ONE_WAY + CANDIDATES}
+    graphs = ({S: policy.graph(S, bounded) for S in ONE_WAY + CANDIDATES}
               if use_policy else None)
 
-    # budget: 10% warm start over the 1-way marginals and the record count,
-    # 90% split across rounds, each round half to SELECT and half to MEASURE.
-    rho_warm = 0.10 * rho / (len(ONE_WAY) + 1)
+    # budget: 10% warm start, 90% split across rounds, each round half to
+    # SELECT and half to MEASURE.  Under unbounded DP the warm start also pays
+    # for `n`, so it is split one extra way.
+    releases = len(ONE_WAY) if bounded else len(ONE_WAY) + 1
+    rho_warm = 0.10 * rho / releases
     rho_round = 0.90 * rho / rounds
     sigma_warm = 1.0 / np.sqrt(2 * rho_warm)
     sigma_meas = 1.0 / np.sqrt(2 * (rho_round / 2))
     eps_select = np.sqrt(8 * (rho_round / 2))
 
-    # n is not public -- it is exactly what differs between neighbours -- so it
-    # is measured.  Sensitivity 1: a bottom edge adds or removes one record,
-    # and no other edge changes the total.
-    n_hat = n + rng.normal(0, sigma_warm * SENSITIVITY)
+    # Under bounded DP n is fixed and public.  Under unbounded it is exactly
+    # what differs between neighbours, so it costs budget: sensitivity 1, since
+    # a bottom edge adds or removes one record and no other edge changes it.
+    n_hat = n if bounded else n + rng.normal(0, sigma_warm)
 
     meas, scales, repeats = {}, {}, {}
     for S in ONE_WAY:
         G = graphs.get(S) if graphs else None
-        meas[S] = measure(marginal(true, S), sigma_warm, rng, G)
-        scales[S] = sigma_warm * cost(S, G).delta
+        meas[S] = measure(marginal(true, S), sigma_warm, rng, G, bounded)
+        scales[S] = sigma_warm * cost(S, G, bounded).delta
         repeats[S] = 1
 
     model = np.full(SIZES, n_hat / np.prod(SIZES))
@@ -136,17 +153,17 @@ def run(true, rho, seed, rounds=10, iters=30, use_policy=False):
 
     picked = []
     for t in range(rounds):
-        S = select(true, model, sigma_meas, eps_select, rng, graphs)
+        S = select(true, model, sigma_meas, eps_select, rng, graphs, bounded)
         picked.append(S)
         G = graphs.get(S) if graphs else None
-        y = measure(marginal(true, S), sigma_meas, rng, G)
+        y = measure(marginal(true, S), sigma_meas, rng, G, bounded)
         if S in meas:
             # averaging k equal-variance measurements divides the noise by sqrt(k)
             meas[S] = (meas[S] * repeats[S] + y) / (repeats[S] + 1)
             repeats[S] += 1
         else:
             meas[S], repeats[S] = y, 1
-        scales[S] = sigma_meas * cost(S, G).delta / np.sqrt(repeats[S])
+        scales[S] = sigma_meas * cost(S, G, bounded).delta / np.sqrt(repeats[S])
         model = mle.fit(model, meas, scales, n_hat, iters, t0=(t + 1) * iters,
                         graphs=graphs)
 
